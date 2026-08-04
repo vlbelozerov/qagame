@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle,
   Bug,
   CheckCircle2,
   Clock,
@@ -16,7 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { config } from '@/config';
-import { Alert, Badge, Button, Card, CardContent, Modal, Spinner, cn } from '@/components/ui';
+import { Alert, Badge, Button, Modal, Spinner, cn } from '@/components/ui';
 import { newId, storage } from '@/lib/storage';
 import { encodeSnapshot, isOnlineMode, pushProgress } from '@/lib/sync';
 import {
@@ -62,6 +61,7 @@ export const PlayerPage: React.FC<{
   const [editing, setEditing] = useState<BugReport | null>(null);
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [syncError, setSyncError] = useState('');
+  const [listOpen, setListOpen] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -198,12 +198,20 @@ export const PlayerPage: React.FC<{
                   : formatDuration(remainingSec)}
             </Badge>
 
-            <Badge className="gap-1 border-orange-200 bg-orange-100 text-orange-800">
-              <Flag className="h-3.5 w-3.5" />
-              дефектов: {stats.total}
-            </Badge>
-
             <SyncBadge state={syncState} error={syncError} onRetry={() => void sync(false)} />
+
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setListOpen(true)}
+              data-testid="open-bug-list"
+            >
+              <Flag className="h-4 w-4" />
+              Мои дефекты
+              <span className="ml-0.5 rounded-full bg-orange-100 px-1.5 text-xs font-bold text-orange-800">
+                {stats.total}
+              </span>
+            </Button>
 
             <Button size="sm" onClick={() => setFormOpen(true)} data-testid="open-bug-form">
               <Plus className="h-4 w-4" />
@@ -255,84 +263,25 @@ export const PlayerPage: React.FC<{
           </div>
         )}
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)]">
-          <section>
-            <Card className="mb-4 border-orange-200 bg-orange-50">
-              <CardContent className="flex items-start gap-3 py-3 text-sm text-orange-800">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>
-                  Ниже — интернет-магазин с намеренно внесёнными дефектами. Проверяйте каталог,
-                  корзину и оформление заказа. Известные промокоды: <b>SALE10</b>, <b>QA2026</b>.
-                  Бесплатная доставка заявлена при заказе свыше 5000 ₽.
-                </p>
-              </CardContent>
-            </Card>
-            <ShoppingCartApp />
-          </section>
-
-          <aside className="space-y-3">
-            <Card>
-              <CardContent className="space-y-2">
-                <h3 className="font-semibold">Мои дефекты</h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {(Object.keys(SEVERITY_LABELS) as Severity[]).map((s) =>
-                    stats.bySeverity[s] ? (
-                      <Badge key={s} className={SEVERITY_STYLES[s]}>
-                        {SEVERITY_LABELS[s]}: {stats.bySeverity[s]}
-                      </Badge>
-                    ) : null,
-                  )}
-                </div>
-                {reports.length === 0 && (
-                  <p className="text-sm text-slate-500">
-                    Пока ничего не заведено. Нашли проблему — нажмите «Завести дефект».
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {reports.map((r) => (
-              <Card key={r.id}>
-                <CardContent className="space-y-2 py-3">
-                  <div className="flex items-start gap-2">
-                    <p className="flex-1 font-medium leading-tight">{r.title}</p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditing(r);
-                        setFormOpen(true);
-                      }}
-                      aria-label="Редактировать"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteReport(r.id)}
-                      aria-label="Удалить"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Badge className={SEVERITY_STYLES[r.severity]}>
-                      {SEVERITY_LABELS[r.severity]}
-                    </Badge>
-                    <Badge>{AREA_LABELS[r.area]}</Badge>
-                    <Badge className={STATUS_STYLES[r.status]}>{STATUS_LABELS[r.status]}</Badge>
-                    <Badge className="gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatDuration(r.elapsedSec)}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </aside>
-        </div>
+        <ShoppingCartApp />
       </main>
+
+      <BugListModal
+        open={listOpen}
+        onClose={() => setListOpen(false)}
+        reports={reports}
+        stats={stats}
+        onCreate={() => {
+          setListOpen(false);
+          setFormOpen(true);
+        }}
+        onEdit={(r) => {
+          setListOpen(false);
+          setEditing(r);
+          setFormOpen(true);
+        }}
+        onDelete={deleteReport}
+      />
 
       <BugFormModal
         open={formOpen}
@@ -386,6 +335,82 @@ const SyncBadge: React.FC<{ state: SyncState; error: string; onRetry: () => void
     </Badge>
   );
 };
+
+const BugListModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  reports: BugReport[];
+  stats: { total: number; bySeverity: Record<string, number> };
+  onCreate: () => void;
+  onEdit: (r: BugReport) => void;
+  onDelete: (id: string) => void;
+}> = ({ open, onClose, reports, stats, onCreate, onEdit, onDelete }) => (
+  <Modal open={open} onClose={onClose} title={`Мои дефекты — ${stats.total}`} wide>
+    <div className="space-y-3">
+      {reports.length === 0 ? (
+        <div className="py-10 text-center">
+          <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+            <Flag className="h-6 w-6" />
+          </span>
+          <p className="font-medium">Пока ничего не заведено</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Нашли проблему в магазине — опишите её, время фиксируется автоматически.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(SEVERITY_LABELS) as Severity[]).map((s) =>
+            stats.bySeverity[s] ? (
+              <Badge key={s} className={SEVERITY_STYLES[s]}>
+                {SEVERITY_LABELS[s]}: {stats.bySeverity[s]}
+              </Badge>
+            ) : null,
+          )}
+        </div>
+      )}
+
+      <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+        {reports.map((r) => (
+          <div key={r.id} className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-start gap-2">
+              <p className="flex-1 font-medium leading-tight">{r.title}</p>
+              <Button variant="ghost" size="sm" onClick={() => onEdit(r)} aria-label="Редактировать">
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDelete(r.id)}
+                aria-label="Удалить"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+              </Button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <Badge className={SEVERITY_STYLES[r.severity]}>{SEVERITY_LABELS[r.severity]}</Badge>
+              <Badge>{AREA_LABELS[r.area]}</Badge>
+              <Badge className={STATUS_STYLES[r.status]}>{STATUS_LABELS[r.status]}</Badge>
+              <Badge className="gap-1">
+                <Clock className="h-3 w-3" />
+                {formatDuration(r.elapsedSec)}
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+        <Button variant="secondary" onClick={onClose}>
+          Закрыть
+        </Button>
+        <Button onClick={onCreate}>
+          <Plus className="h-4 w-4" />
+          Завести дефект
+        </Button>
+      </div>
+    </div>
+  </Modal>
+);
 
 const BugFormModal: React.FC<{
   open: boolean;
