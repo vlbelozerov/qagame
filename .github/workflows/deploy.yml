@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -33,7 +33,13 @@ jobs:
           VITE_BASE: /${{ github.event.repository.name }}/
         run: npm run build
 
+      # enablement: true включает Pages и переводит их в режим сборки из Actions.
+      # Без этого шаг падает с «Get Pages site failed», если в Settings → Pages
+      # выбран режим «Deploy from a branch» — тогда наружу уезжают исходники,
+      # а не собранный dist/, и браузер получает 404 на /src/main.tsx.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:

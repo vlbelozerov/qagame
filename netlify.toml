@@ -1,0 +1,10 @@
+# Деплой на Netlify: подключите репозиторий, остальное подхватится отсюда.
+# VITE_BASE не задаём — на Netlify и Cloudflare Pages сайт отдаётся из корня домена,
+# в отличие от GitHub Pages с его путём /<repo>/.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
