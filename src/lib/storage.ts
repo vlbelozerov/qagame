@@ -1,4 +1,4 @@
-import type { BugReport, Participant, SessionState } from './types';
+import type { AdminSnapshot, BugReport, Participant, SessionState } from './types';
 
 const KEY = {
   session: 'qagame.session',
@@ -6,6 +6,8 @@ const KEY = {
   reports: 'qagame.reports',
   /** id репортов, подтверждённых сервером — чтобы не слать их повторно. */
   synced: 'qagame.synced',
+  /** Сводка админки в офлайн-режиме: импортированные участники и проставленные вердикты. */
+  admin: 'qagame.admin',
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -42,13 +44,26 @@ export const storage = {
     write(KEY.synced, [...merged]);
   },
 
-  /** Полный сброс данных участника — используется кнопкой «Выйти». */
+  getAdminData: () => read<AdminSnapshot>(KEY.admin, { participants: [], reports: [] }),
+  setAdminData: (data: AdminSnapshot) => write(KEY.admin, data),
+
+  /** Полный сброс данных участника — используется при смене участника в одном браузере. */
   clearPlayerData: () => {
     [KEY.session, KEY.participant, KEY.reports, KEY.synced].forEach((k) =>
       localStorage.removeItem(k),
     );
   },
 };
+
+/**
+ * Логин для демо-режима: генерируется один раз и переживает перезагрузку,
+ * чтобы раунд не начинался заново при каждом обновлении страницы.
+ */
+export function guestLogin(): string {
+  const existing = storage.getParticipant();
+  if (existing?.login) return existing.login;
+  return `guest-${Math.random().toString(36).slice(2, 6)}`;
+}
 
 export function newId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();

@@ -12,6 +12,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import { config } from '@/config';
@@ -42,10 +43,12 @@ const EMPTY_DRAFT = {
   area: 'catalog' as Area,
 };
 
-export const PlayerPage: React.FC<{ login: string; onLogout: () => void }> = ({
-  login,
-  onLogout,
-}) => {
+export const PlayerPage: React.FC<{
+  login: string;
+  onLogout: () => void;
+  /** Задан только в демо-режиме: быстрый переход в админку без пароля. */
+  onSwitchRole?: () => void;
+}> = ({ login, onLogout, onSwitchRole }) => {
   const [participant, setParticipant] = useState<Participant>(() => {
     const saved = storage.getParticipant();
     if (saved && saved.login === login) return saved;
@@ -210,7 +213,25 @@ export const PlayerPage: React.FC<{ login: string; onLogout: () => void }> = ({
               <CheckCircle2 className="h-4 w-4" />
               Завершить
             </Button>
-            <Button size="sm" variant="ghost" onClick={onLogout} aria-label="Выйти">
+            {onSwitchRole && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={onSwitchRole}
+                data-testid="go-admin"
+                title="Демо-режим: админка открывается без пароля"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Админка
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onLogout}
+              aria-label={onSwitchRole ? 'Сменить участника' : 'Выйти'}
+              title={onSwitchRole ? 'Сменить участника' : 'Выйти'}
+            >
               <LogOut className="h-4 w-4" />
             </Button>
           </div>

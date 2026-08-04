@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   Download,
+  Gamepad2,
   LogOut,
   RefreshCw,
   ShieldCheck,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Card, CardContent, Modal, Spinner, cn } from '@/components/ui';
+import { storage } from '@/lib/storage';
 import { decodeSnapshot, fetchSnapshot, isOnlineMode, pushVerdict } from '@/lib/sync';
 import {
   AREA_LABELS,
@@ -27,10 +29,12 @@ import { formatDuration } from './PlayerPage';
 
 type Filter = 'all' | ValidationStatus;
 
-export const AdminPage: React.FC<{ adminSecret: string; onLogout: () => void }> = ({
-  adminSecret,
-  onLogout,
-}) => {
+export const AdminPage: React.FC<{
+  adminSecret: string;
+  onLogout: () => void;
+  /** Задан только в демо-режиме: возврат к экрану участника. */
+  onSwitchRole?: () => void;
+}> = ({ adminSecret, onLogout, onSwitchRole }) => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [reports, setReports] = useState<BugReport[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,7 +46,31 @@ export const AdminPage: React.FC<{ adminSecret: string; onLogout: () => void }> 
   const [knownBugs, setKnownBugs] = useState<KnownBug[]>([]);
 
   const load = useCallback(async () => {
-    if (!isOnlineMode()) return;
+    if (!isOnlineMode()) {
+      // Офлайн: показываем ранее импортированные результаты и раунд участника,
+      // который играет в этом же браузере, — так админку видно без обмена кодами.
+      const saved = storage.getAdminData();
+      const localPlayer = storage.getParticipant();
+      const localReports = localPlayer
+        ? storage.getReports().filter((r) => r.login === localPlayer.login)
+        : [];
+      setParticipants(
+        localPlayer
+          ? [...saved.participants.filter((p) => p.login !== localPlayer.login), localPlayer]
+          : saved.participants,
+      );
+      // Вердикты, проставленные админом, приоритетнее данных из localStorage участника.
+      const verdicts = new Map(saved.reports.map((r) => [r.id, r]));
+      const merged = localReports.map((r) => {
+        const verdict = verdicts.get(r.id);
+        return verdict
+          ? { ...r, status: verdict.status, score: verdict.score, reviewComment: verdict.reviewComment }
+          : r;
+      });
+      const localIds = new Set(localReports.map((r) => r.id));
+      setReports([...saved.reports.filter((r) => !localIds.has(r.id)), ...merged]);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -59,6 +87,13 @@ export const AdminPage: React.FC<{ adminSecret: string; onLogout: () => void }> 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // В офлайн-режиме сводка живёт в localStorage, иначе вердикты терялись бы при перезагрузке.
+  useEffect(() => {
+    if (isOnlineMode()) return;
+    if (participants.length === 0 && reports.length === 0) return;
+    storage.setAdminData({ participants, reports });
+  }, [participants, reports]);
 
   async function openReference() {
     if (knownBugs.length === 0) {
@@ -176,7 +211,9 @@ export const AdminPage: React.FC<{ adminSecret: string; onLogout: () => void }> 
           <div className="leading-tight">
             <p className="text-sm font-semibold">Админка конкурса</p>
             <p className="text-xs text-slate-500">
-              {isOnlineMode() ? 'Данные с сервера конкурса' : 'Офлайн-режим: импорт кодов участников'}
+              {isOnlineMode()
+                ? 'Данные с сервера конкурса'
+                : 'Офлайн-режим: раунд в этом браузере и импортированные коды'}
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -192,10 +229,14 @@ export const AdminPage: React.FC<{ adminSecret: string; onLogout: () => void }> 
               <Download className="h-4 w-4" />
               CSV
             </Button>
-            {isOnlineMode() && (
-              <Button size="sm" onClick={() => void load()} disabled={loading}>
-                {loading ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
-                Обновить
+            <Button size="sm" onClick={() => void load()} disabled={loading}>
+              {loading ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
+              Обновить
+            </Button>
+            {onSwitchRole && (
+              <Button size="sm" variant="secondary" onClick={onSwitchRole} data-testid="go-player">
+                <Gamepad2 className="h-4 w-4" />
+                К участнику
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={onLogout} aria-label="Выйти">
@@ -226,7 +267,7 @@ export const AdminPage: React.FC<{ adminSecret: string; onLogout: () => void }> 
                 Данных пока нет.{' '}
                 {isOnlineMode()
                   ? 'Нажмите «Обновить», когда участники начнут работу.'
-                  : 'Импортируйте коды результатов участников.'}
+                  : 'Заведите дефект на экране участника или импортируйте коды результатов.'}
               </p>
             )}
             {leaderboard.length > 0 && (
