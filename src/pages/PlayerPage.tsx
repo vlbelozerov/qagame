@@ -171,7 +171,7 @@ export const PlayerPage: React.FC<{
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 text-white">
               <Bug className="h-5 w-5" />
@@ -238,7 +238,7 @@ export const PlayerPage: React.FC<{
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6">
+      <main className="mx-auto max-w-[1600px] px-4 py-6">
         {participant.finishedAt && (
           <div className="mb-4">
             <Alert tone="success">
@@ -255,7 +255,7 @@ export const PlayerPage: React.FC<{
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)]">
           <section>
             <Card className="mb-4 border-orange-200 bg-orange-50">
               <CardContent className="flex items-start gap-3 py-3 text-sm text-orange-800">
