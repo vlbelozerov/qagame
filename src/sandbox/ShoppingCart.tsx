@@ -27,7 +27,7 @@ import {
 } from './products';
 
 /**
- * Тренажёр «ТехноМаркет» — витрина интернет-магазина.
+ * Тренажёр «СпортАрена» — витрина магазина спортивных товаров.
  *
  * Внимание для мейнтейнеров: дефекты в этом файле внесены НАМЕРЕННО — это предмет
  * поиска для участников конкурса. Полный перечень лежит в src/lib/knownBugs.ts
@@ -81,8 +81,8 @@ export const ShoppingCartApp: React.FC = () => {
       const matchesCategory =
         category === CATEGORIES[0] ||
         p.category === category ||
-        // Категория «Периферия» подмешивает аксессуары.
-        (category === 'Периферия' && p.category === 'Аксессуары');
+        // Категория «Тренажёры» подмешивает аксессуары.
+        (category === 'Тренажёры' && p.category === 'Аксессуары');
       return matchesQuery && matchesCategory;
     });
 
@@ -297,7 +297,7 @@ const StoreHeader: React.FC<{
           <ShoppingBag className="h-5 w-5" />
         </span>
         <span className="text-lg font-bold tracking-tight">
-          Техно<span className="text-orange-600">Маркет</span>
+          Спорт<span className="text-orange-600">Арена</span>
         </span>
       </button>
 
@@ -305,7 +305,7 @@ const StoreHeader: React.FC<{
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           className="field pl-9"
-          placeholder="Искать товары"
+          placeholder="Искать товары для спорта"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           data-testid="catalog-search"
@@ -415,9 +415,9 @@ const Catalog: React.FC<{
 }) => (
   <div className="space-y-5">
     <section className="overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-orange-900 px-6 py-8 text-white sm:px-10 sm:py-10">
-      <p className="text-xs uppercase tracking-widest text-orange-300">Летняя распродажа</p>
+      <p className="text-xs uppercase tracking-widest text-orange-300">Сезон тренировок</p>
       <h2 className="mt-2 max-w-lg text-2xl font-bold leading-tight sm:text-3xl">
-        Скидки до 25% на технику для дома и работы
+        Скидки до 25% на экипировку и домашние тренажёры
       </h2>
       <div className="mt-4 flex flex-wrap gap-2 text-sm">
         <span className="rounded-lg bg-white/10 px-3 py-1.5 backdrop-blur">
@@ -434,7 +434,7 @@ const Catalog: React.FC<{
         при заказе свыше 5000 ₽
       </Advantage>
       <Advantage icon={<ShieldCheck className="h-4 w-4" />} title="Гарантия 2 года">
-        на всю технику
+        на тренажёры
       </Advantage>
       <Advantage icon={<RotateCcw className="h-4 w-4" />} title="Возврат 14 дней">
         без объяснения причин
@@ -1139,10 +1139,10 @@ const Field: React.FC<{ label: string; error?: string; children: React.ReactNode
 const StoreFooter: React.FC = () => (
   <footer className="border-t border-slate-200 bg-white px-4 py-5 text-xs text-slate-400 sm:px-6">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span>© 2026 ТехноМаркет — интернет-магазин электроники</span>
+      <span>© 2026 СпортАрена — магазин спортивных товаров</span>
       <span className="flex gap-4">
         <span>Доставка и оплата</span>
-        <span>Гарантия</span>
+        <span>Подбор размера</span>
         <span>Контакты</span>
       </span>
     </div>
