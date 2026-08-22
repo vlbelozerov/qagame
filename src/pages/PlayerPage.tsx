@@ -63,6 +63,10 @@ export const PlayerPage: React.FC<{
   const [syncError, setSyncError] = useState('');
   const [listOpen, setListOpen] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
+  const [quickTitle, setQuickTitle] = useState('');
+  const [quickSeverity, setQuickSeverity] = useState<Severity>('major');
+  const [quickError, setQuickError] = useState('');
+  const [justAdded, setJustAdded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   // Держим свежие данные в ref, чтобы интервал синхронизации не пересоздавался на каждый ввод.
@@ -122,29 +126,49 @@ export const PlayerPage: React.FC<{
     return () => window.removeEventListener('pagehide', handler);
   }, []);
 
-  function saveReport(draft: typeof EMPTY_DRAFT) {
+  function addReport(draft: typeof EMPTY_DRAFT) {
     const stamp = new Date().toISOString();
+    const report: BugReport = {
+      id: newId(),
+      login,
+      ...draft,
+      createdAt: stamp,
+      elapsedSec,
+      status: 'pending',
+      score: 0,
+      reviewComment: '',
+      updatedAt: stamp,
+    };
+    setReports((prev) => [report, ...prev]);
+    setTimeout(() => void sync(true), 0);
+  }
+
+  function saveReport(draft: typeof EMPTY_DRAFT) {
     if (editing) {
+      const stamp = new Date().toISOString();
       setReports((prev) =>
         prev.map((r) => (r.id === editing.id ? { ...r, ...draft, updatedAt: stamp } : r)),
       );
+      setTimeout(() => void sync(true), 0);
     } else {
-      const report: BugReport = {
-        id: newId(),
-        login,
-        ...draft,
-        createdAt: stamp,
-        elapsedSec,
-        status: 'pending',
-        score: 0,
-        reviewComment: '',
-        updatedAt: stamp,
-      };
-      setReports((prev) => [report, ...prev]);
+      addReport(draft);
     }
     setFormOpen(false);
     setEditing(null);
-    setTimeout(() => void sync(true), 0);
+  }
+
+  /** Быстрое заведение одной строкой: заголовок и серьёзность, остальное можно дописать позже. */
+  function quickAdd() {
+    const title = quickTitle.trim();
+    if (title.length < 5) {
+      setQuickError('Опишите проблему хотя бы парой слов');
+      return;
+    }
+    setQuickError('');
+    addReport({ ...EMPTY_DRAFT, title, severity: quickSeverity });
+    setQuickTitle('');
+    setJustAdded(true);
+    window.setTimeout(() => setJustAdded(false), 1800);
   }
 
   function deleteReport(id: string) {
@@ -213,10 +237,6 @@ export const PlayerPage: React.FC<{
               </span>
             </Button>
 
-            <Button size="sm" onClick={() => setFormOpen(true)} data-testid="open-bug-form">
-              <Plus className="h-4 w-4" />
-              Завести дефект
-            </Button>
             <Button size="sm" variant="secondary" onClick={finishRound} data-testid="finish-round">
               <CheckCircle2 className="h-4 w-4" />
               Завершить
@@ -243,6 +263,68 @@ export const PlayerPage: React.FC<{
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+
+        <div className="mx-auto max-w-[1600px] px-4 pb-3">
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              quickAdd();
+            }}
+          >
+            <div className="relative min-w-[240px] flex-1">
+              <Flag className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className="field pl-9"
+                placeholder="Что сломалось? Опишите одной строкой и нажмите Enter"
+                value={quickTitle}
+                onChange={(e) => {
+                  setQuickTitle(e.target.value);
+                  if (quickError) setQuickError('');
+                }}
+                data-testid="quick-title"
+              />
+            </div>
+
+            <select
+              className="field w-auto"
+              value={quickSeverity}
+              onChange={(e) => setQuickSeverity(e.target.value as Severity)}
+              title="Серьёзность"
+              data-testid="quick-severity"
+            >
+              {(Object.keys(SEVERITY_LABELS) as Severity[]).map((s) => (
+                <option key={s} value={s}>
+                  {SEVERITY_LABELS[s]}
+                </option>
+              ))}
+            </select>
+
+            <Button type="submit" size="md" data-testid="quick-add">
+              <Plus className="h-4 w-4" />
+              Добавить
+            </Button>
+
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setFormOpen(true)}
+              data-testid="open-bug-form"
+              title="Открыть полную форму: шаги, ожидаемый и фактический результат"
+            >
+              Подробно
+            </Button>
+
+            {quickError && <span className="text-sm text-rose-600">{quickError}</span>}
+            {justAdded && !quickError && (
+              <span className="flex items-center gap-1 text-sm text-emerald-700">
+                <CheckCircle2 className="h-4 w-4" />
+                Записал
+              </span>
+            )}
+          </form>
         </div>
       </header>
 
@@ -285,6 +367,8 @@ export const PlayerPage: React.FC<{
 
       <BugFormModal
         open={formOpen}
+        initialTitle={quickTitle}
+        initialSeverity={quickSeverity}
         initial={editing}
         onClose={() => {
           setFormOpen(false);
@@ -415,9 +499,12 @@ const BugListModal: React.FC<{
 const BugFormModal: React.FC<{
   open: boolean;
   initial: BugReport | null;
+  /** Черновик из строки быстрого ввода — подставляется при создании нового дефекта. */
+  initialTitle?: string;
+  initialSeverity?: Severity;
   onClose: () => void;
   onSave: (draft: typeof EMPTY_DRAFT) => void;
-}> = ({ open, initial, onClose, onSave }) => {
+}> = ({ open, initial, initialTitle, initialSeverity, onClose, onSave }) => {
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [error, setError] = useState('');
 
@@ -434,15 +521,14 @@ const BugFormModal: React.FC<{
             severity: initial.severity,
             area: initial.area,
           }
-        : EMPTY_DRAFT,
+        : { ...EMPTY_DRAFT, title: initialTitle ?? '', severity: initialSeverity ?? 'major' },
     );
-  }, [open, initial]);
+  }, [open, initial, initialTitle, initialSeverity]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (draft.title.trim().length < 5) return setError('Заголовок должен быть содержательным');
-    if (draft.steps.trim().length < 5) return setError('Опишите шаги воспроизведения');
-    if (!draft.actual.trim()) return setError('Опишите фактический результат');
+    // Обязателен только заголовок: остальное участник дописывает, если есть время.
+    if (draft.title.trim().length < 5) return setError('Опишите проблему хотя бы парой слов');
     onSave({
       ...draft,
       title: draft.title.trim(),
@@ -499,7 +585,7 @@ const BugFormModal: React.FC<{
           </div>
         </div>
         <div>
-          <label className="label">Шаги воспроизведения</label>
+          <label className="label">Шаги воспроизведения — необязательно</label>
           <textarea
             className="field min-h-[96px]"
             value={draft.steps}
@@ -510,7 +596,7 @@ const BugFormModal: React.FC<{
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="label">Ожидаемый результат</label>
+            <label className="label">Ожидаемый — необязательно</label>
             <textarea
               className="field min-h-[72px]"
               value={draft.expected}
@@ -519,7 +605,7 @@ const BugFormModal: React.FC<{
             />
           </div>
           <div>
-            <label className="label">Фактический результат</label>
+            <label className="label">Фактический — необязательно</label>
             <textarea
               className="field min-h-[72px]"
               value={draft.actual}
