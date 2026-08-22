@@ -12,14 +12,16 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Lock,
   Trash2,
 } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Modal, Spinner, cn } from '@/components/ui';
 import { newId, storage } from '@/lib/storage';
-import { encodeSnapshot, isOnlineMode, pushProgress } from '@/lib/sync';
+import { encodeSnapshot, fetchRound, isOnlineMode, pushProgress } from '@/lib/sync';
 import {
   AREA_LABELS,
+  ROUND_STATUS_LABELS,
   SEVERITY_LABELS,
   SEVERITY_STYLES,
   STATUS_LABELS,
@@ -27,6 +29,7 @@ import {
   type Area,
   type BugReport,
   type Participant,
+  type RoundState,
   type Severity,
 } from '@/lib/types';
 import { ShoppingCartApp } from '@/sandbox/ShoppingCart';
@@ -52,7 +55,7 @@ export const PlayerPage: React.FC<{
     const saved = storage.getParticipant();
     if (saved && saved.login === login) return saved;
     const now = new Date().toISOString();
-    return { login, startedAt: now, lastSeenAt: now, finishedAt: '' };
+    return { login, round: 0, startedAt: now, lastSeenAt: now, finishedAt: '' };
   });
   const [reports, setReports] = useState<BugReport[]>(() =>
     storage.getReports().filter((r) => r.login === login),
@@ -68,10 +71,10 @@ export const PlayerPage: React.FC<{
   const [quickError, setQuickError] = useState('');
   const [justAdded, setJustAdded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [round, setRound] = useState<RoundState>(() => storage.getRound());
 
   // Держим свежие данные в ref, чтобы интервал синхронизации не пересоздавался на каждый ввод.
-  const latest = useRef({ participant, reports });
-  latest.current = { participant, reports };
+  const latest = useRef({ participant, reports: [] as BugReport[] });
 
   useEffect(() => storage.setParticipant(participant), [participant]);
   useEffect(() => storage.setReports(reports), [reports]);
@@ -81,10 +84,58 @@ export const PlayerPage: React.FC<{
     return () => clearInterval(t);
   }, []);
 
-  const startedMs = new Date(participant.startedAt).getTime();
-  const elapsedSec = Math.max(0, Math.floor((now - startedMs) / 1000));
-  const remainingSec = config.roundMinutes > 0 ? config.roundMinutes * 60 - elapsedSec : null;
+  // Состояние раунда: в онлайне спрашиваем сервер, в офлайне читаем localStorage,
+  // куда его пишет админка, открытая в этом же браузере.
+  useEffect(() => {
+    const poll = () => {
+      if (isOnlineMode()) {
+        fetchRound()
+          .then(setRound)
+          .catch(() => undefined);
+      } else {
+        setRound(storage.getRound());
+      }
+    };
+    poll();
+    const t = setInterval(poll, isOnlineMode() ? 10_000 : 2_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Отсчёт идёт от старта раунда, а не от входа участника: у всех одинаковое время.
+  const roundStartMs = round.startedAt ? new Date(round.startedAt).getTime() : Date.now();
+  const elapsedSec = round.status === 'idle' ? 0 : Math.max(0, Math.floor((now - roundStartMs) / 1000));
+  const endsMs = round.endsAt ? new Date(round.endsAt).getTime() : 0;
+  const remainingSec = endsMs ? Math.floor((endsMs - now) / 1000) : null;
   const timeIsUp = remainingSec !== null && remainingSec <= 0;
+
+  /** Дефекты принимаются, только пока раунд идёт и время не вышло. */
+  const roundOpen = round.status === 'running' && !timeIsUp && !participant.finishedAt;
+
+  const lockReason = participant.finishedAt
+    ? 'Вы сдали результат — приём ваших дефектов закрыт.'
+    : round.status === 'idle'
+      ? 'Раунд ещё не начался. Дождитесь организатора — магазин пока можно изучать.'
+      : round.status === 'finished'
+        ? 'Раунд завершён организатором. Приём дефектов закрыт.'
+        : timeIsUp
+          ? 'Время раунда вышло. Приём дефектов закрыт.'
+          : '';
+
+  // Новый раунд обнуляет прогресс участника: прошлые находки уже у организатора.
+  useEffect(() => {
+    if (round.status !== 'running' || round.number === 0) return;
+    if (participant.round === round.number) return;
+    setParticipant({
+      login,
+      round: round.number,
+      startedAt: round.startedAt || new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+      finishedAt: '',
+    });
+    // Репорты прошлых раундов не удаляем: в офлайн-режиме организатор ещё не забрал
+    // их кодом результата. Показываем только текущий раунд, храним всё.
+    setFinishOpen(false);
+  }, [round, participant.round, login]);
 
   const sync = useCallback(async (silent: boolean) => {
     if (!isOnlineMode()) return;
@@ -94,10 +145,16 @@ export const PlayerPage: React.FC<{
         ...latest.current.participant,
         lastSeenAt: new Date().toISOString(),
       };
-      await pushProgress(snapshot, latest.current.reports);
-      storage.addSyncedIds(latest.current.reports.map((r) => r.id));
+      const result = await pushProgress(snapshot, latest.current.reports);
+      storage.addSyncedIds(result.accepted);
+      // Сервер возвращает актуальный раунд — узнаём о старте и закрытии без лишнего запроса.
+      if (result.round) setRound(result.round);
       setSyncState('ok');
-      setSyncError('');
+      setSyncError(
+        result.rejected && result.rejected.length > 0
+          ? `Сервер не принял дефектов: ${result.rejected.length} (заведены вне раунда)`
+          : '',
+      );
     } catch (err) {
       setSyncState('error');
       setSyncError(err instanceof Error ? err.message : 'Ошибка отправки');
@@ -127,9 +184,15 @@ export const PlayerPage: React.FC<{
   }, []);
 
   function addReport(draft: typeof EMPTY_DRAFT) {
+    // Страховка на случай, если раунд закрылся между отрисовкой и нажатием.
+    if (!roundOpen) {
+      setQuickError(lockReason || 'Приём дефектов закрыт');
+      return;
+    }
     const stamp = new Date().toISOString();
     const report: BugReport = {
       id: newId(),
+      round: round.number,
       login,
       ...draft,
       createdAt: stamp,
@@ -176,21 +239,30 @@ export const PlayerPage: React.FC<{
     setTimeout(() => void sync(true), 0);
   }
 
-  function finishRound() {
+  /** Участник досрочно сдаёт результат: его ввод закрывается, время фиксируется. */
+  function submitResult() {
     const finished = { ...participant, finishedAt: new Date().toISOString() };
     setParticipant(finished);
-    latest.current = { participant: finished, reports };
+    latest.current = { participant: finished, reports: roundReports };
     setFinishOpen(true);
     void sync(false);
   }
 
+  /** Участник видит и сдаёт только находки текущего раунда. */
+  const roundReports = useMemo(
+    () => reports.filter((r) => r.round === round.number),
+    [reports, round.number],
+  );
+
+  latest.current = { participant, reports: roundReports };
+
   const stats = useMemo(() => {
-    const bySeverity = reports.reduce<Record<string, number>>((acc, r) => {
+    const bySeverity = roundReports.reduce<Record<string, number>>((acc, r) => {
       acc[r.severity] = (acc[r.severity] ?? 0) + 1;
       return acc;
     }, {});
-    return { total: reports.length, bySeverity };
-  }, [reports]);
+    return { total: roundReports.length, bySeverity };
+  }, [roundReports]);
 
   return (
     <div className="min-h-screen">
@@ -210,16 +282,21 @@ export const PlayerPage: React.FC<{
             <Badge
               className={cn(
                 'gap-1',
-                timeIsUp && 'border-rose-200 bg-rose-100 text-rose-800',
+                roundOpen
+                  ? 'border-emerald-200 bg-emerald-100 text-emerald-800'
+                  : 'border-rose-200 bg-rose-100 text-rose-800',
               )}
-              title="Время раунда"
+              title={round.title || 'Состояние раунда'}
+              data-testid="round-status"
             >
-              <Clock className="h-3.5 w-3.5" />
-              {remainingSec === null
-                ? formatDuration(elapsedSec)
-                : timeIsUp
-                  ? 'время вышло'
-                  : formatDuration(remainingSec)}
+              {roundOpen ? <Clock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+              {round.status === 'idle'
+                ? 'раунд не начался'
+                : !roundOpen
+                  ? 'приём закрыт'
+                  : remainingSec === null
+                    ? `раунд ${round.number} · ${formatDuration(elapsedSec)}`
+                    : `раунд ${round.number} · ${formatDuration(remainingSec)}`}
             </Badge>
 
             <SyncBadge state={syncState} error={syncError} onRetry={() => void sync(false)} />
@@ -237,9 +314,12 @@ export const PlayerPage: React.FC<{
               </span>
             </Button>
 
-            <Button size="sm" variant="secondary" onClick={finishRound} data-testid="finish-round">
+            <Button size="sm" variant="secondary" onClick={submitResult}
+              disabled={!roundOpen}
+              data-testid="finish-round"
+            >
               <CheckCircle2 className="h-4 w-4" />
-              Завершить
+              Сдать результат
             </Button>
             {onSwitchRole && (
               <Button
@@ -277,7 +357,12 @@ export const PlayerPage: React.FC<{
               <Flag className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 className="field pl-9"
-                placeholder="Что сломалось? Опишите одной строкой и нажмите Enter"
+                placeholder={
+                  roundOpen
+                    ? 'Что сломалось? Опишите одной строкой и нажмите Enter'
+                    : 'Приём дефектов закрыт'
+                }
+                disabled={!roundOpen}
                 value={quickTitle}
                 onChange={(e) => {
                   setQuickTitle(e.target.value);
@@ -290,6 +375,7 @@ export const PlayerPage: React.FC<{
             <select
               className="field w-auto"
               value={quickSeverity}
+              disabled={!roundOpen}
               onChange={(e) => setQuickSeverity(e.target.value as Severity)}
               title="Серьёзность"
               data-testid="quick-severity"
@@ -301,7 +387,7 @@ export const PlayerPage: React.FC<{
               ))}
             </select>
 
-            <Button type="submit" size="md" data-testid="quick-add">
+            <Button type="submit" size="md" disabled={!roundOpen} data-testid="quick-add">
               <Plus className="h-4 w-4" />
               Добавить
             </Button>
@@ -311,6 +397,7 @@ export const PlayerPage: React.FC<{
               variant="secondary"
               size="md"
               onClick={() => setFormOpen(true)}
+              disabled={!roundOpen}
               data-testid="open-bug-form"
               title="Открыть полную форму: шаги, ожидаемый и фактический результат"
             >
@@ -329,18 +416,18 @@ export const PlayerPage: React.FC<{
       </header>
 
       <main className="mx-auto max-w-[1600px] px-4 py-6">
-        {participant.finishedAt && (
+        {!roundOpen && (
           <div className="mb-4">
-            <Alert tone="success">
-              Раунд завершён в {new Date(participant.finishedAt).toLocaleTimeString('ru-RU')}. Можно
-              продолжать добавлять дефекты — время фиксации у каждого своё.
+            <Alert tone={round.status === 'idle' ? 'info' : 'error'}>
+              <span className="font-medium">{ROUND_STATUS_LABELS[round.status]}.</span> {lockReason}
+              {roundReports.length > 0 && ` Заведено дефектов: ${roundReports.length}.`}
             </Alert>
           </div>
         )}
-        {timeIsUp && !participant.finishedAt && (
+        {roundOpen && round.title && (
           <div className="mb-4">
-            <Alert tone="error">
-              Время раунда истекло. Завершите раунд, чтобы зафиксировать результат.
+            <Alert tone="success">
+              Идёт раунд {round.number}: {round.title}
             </Alert>
           </div>
         )}
@@ -351,7 +438,7 @@ export const PlayerPage: React.FC<{
       <BugListModal
         open={listOpen}
         onClose={() => setListOpen(false)}
-        reports={reports}
+        reports={roundReports}
         stats={stats}
         onCreate={() => {
           setListOpen(false);
@@ -381,7 +468,7 @@ export const PlayerPage: React.FC<{
         open={finishOpen}
         onClose={() => setFinishOpen(false)}
         participant={participant}
-        reports={reports}
+        reports={roundReports}
         syncState={syncState}
         syncError={syncError}
       />

@@ -11,9 +11,11 @@
 
 var SHEET_REPORTS = 'reports';
 var SHEET_PARTICIPANTS = 'participants';
+var SHEET_STATE = 'state';
 
 var REPORT_COLUMNS = [
   'id',
+  'round',
   'login',
   'title',
   'steps',
@@ -29,7 +31,12 @@ var REPORT_COLUMNS = [
   'updatedAt',
 ];
 
-var PARTICIPANT_COLUMNS = ['login', 'startedAt', 'lastSeenAt', 'finishedAt'];
+var PARTICIPANT_COLUMNS = ['login', 'round', 'startedAt', 'lastSeenAt', 'finishedAt'];
+
+var STATE_COLUMNS = ['number', 'status', 'title', 'startedAt', 'endsAt', 'finishedAt'];
+
+/** Запас на расхождение часов клиента и сервера, мс. */
+var CLOCK_GRACE_MS = 60000;
 
 function doPost(e) {
   try {
@@ -37,6 +44,7 @@ function doPost(e) {
     var action = request.action;
 
     if (action === 'submit') return json({ ok: true, result: handleSubmit(request) });
+    if (action === 'round') return json({ ok: true, result: readState() });
 
     // Всё остальное — только для админа.
     requireAdmin(request);
@@ -44,6 +52,9 @@ function doPost(e) {
     if (action === 'adminLogin') return json({ ok: true, result: { ok: true } });
     if (action === 'adminSnapshot') return json({ ok: true, result: handleSnapshot() });
     if (action === 'adminVerdict') return json({ ok: true, result: handleVerdict(request) });
+    if (action === 'adminStartRound') return json({ ok: true, result: startRound(request) });
+    if (action === 'adminFinishRound') return json({ ok: true, result: finishRound() });
+    if (action === 'adminReset') return json({ ok: true, result: resetCompetition() });
 
     return json({ ok: false, error: 'Неизвестное действие: ' + action });
   } catch (err) {
@@ -112,6 +123,121 @@ function toRow(object, columns) {
   });
 }
 
+function readState() {
+  var sheet = getSheet(SHEET_STATE, STATE_COLUMNS);
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    return { number: 0, status: 'idle', title: '', startedAt: '', endsAt: '', finishedAt: '' };
+  }
+  var row = values[1];
+  return {
+    number: Number(row[0]) || 0,
+    status: String(row[1] || 'idle'),
+    title: String(row[2] || ''),
+    startedAt: asIso(row[3]),
+    endsAt: asIso(row[4]),
+    finishedAt: asIso(row[5]),
+  };
+}
+
+/** Даты Sheets умеет возвращать объектом Date — приводим всё к ISO-строке. */
+function asIso(value) {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+function writeState(state) {
+  var sheet = getSheet(SHEET_STATE, STATE_COLUMNS);
+  var row = [
+    state.number,
+    state.status,
+    state.title,
+    state.startedAt,
+    state.endsAt,
+    state.finishedAt,
+  ];
+  if (sheet.getLastRow() < 2) sheet.appendRow(row);
+  else sheet.getRange(2, 1, 1, STATE_COLUMNS.length).setValues([row]);
+  return state;
+}
+
+function startRound(request) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var previous = readState();
+    var now = new Date();
+    var minutes = Number(request.durationMinutes) || 0;
+    return writeState({
+      number: previous.number + 1,
+      status: 'running',
+      title: String(request.title || ''),
+      startedAt: now.toISOString(),
+      endsAt: minutes > 0 ? new Date(now.getTime() + minutes * 60000).toISOString() : '',
+      finishedAt: '',
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function finishRound() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var state = readState();
+    state.status = 'finished';
+    state.finishedAt = new Date().toISOString();
+    return writeState(state);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Новый конкурс: данные прошлого стираются, нумерация раундов начинается заново. */
+function resetCompetition() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    [
+      [SHEET_REPORTS, REPORT_COLUMNS],
+      [SHEET_PARTICIPANTS, PARTICIPANT_COLUMNS],
+    ].forEach(function (pair) {
+      var sheet = getSheet(pair[0], pair[1]);
+      if (sheet.getLastRow() > 1) {
+        sheet.deleteRows(2, sheet.getLastRow() - 1);
+      }
+    });
+    return writeState({
+      number: 0,
+      status: 'idle',
+      title: '',
+      startedAt: '',
+      endsAt: '',
+      finishedAt: '',
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Можно ли принять этот репорт. Клиент блокирует ввод сам, но полагаться на это
+ * нельзя: страница открыта у участника, и правила должен проверять сервер.
+ */
+function reportAllowed(report, state) {
+  if (state.number === 0 || state.status === 'idle') return false;
+  if (Number(report.round) !== state.number) return false;
+  var createdMs = Date.parse(report.createdAt);
+  if (isNaN(createdMs)) return false;
+  if (state.endsAt && createdMs > Date.parse(state.endsAt) + CLOCK_GRACE_MS) return false;
+  if (state.status === 'finished' && state.finishedAt) {
+    if (createdMs > Date.parse(state.finishedAt) + CLOCK_GRACE_MS) return false;
+  }
+  return true;
+}
+
 /**
  * Приём прогресса участника. Блокировка нужна, потому что 100 участников
  * пишут в один документ параллельно, а Apps Script выполняет запросы конкурентно.
@@ -120,9 +246,19 @@ function handleSubmit(request) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    var state = readState();
     upsertParticipant(request.participant);
-    var accepted = upsertReports(request.reports || []);
-    return { accepted: accepted };
+
+    var incoming = request.reports || [];
+    var allowed = [];
+    var rejected = [];
+    incoming.forEach(function (report) {
+      if (reportAllowed(report, state)) allowed.push(report);
+      else rejected.push(report.id);
+    });
+
+    var accepted = upsertReports(allowed);
+    return { accepted: accepted, rejected: rejected, round: state };
   } finally {
     lock.releaseLock();
   }
@@ -135,14 +271,17 @@ function upsertParticipant(participant) {
   for (var r = 1; r < values.length; r++) {
     if (String(values[r][0]) === String(participant.login)) {
       // startedAt фиксируем один раз — иначе перезагрузка страницы обнулила бы время участника.
+      var sameRound = Number(values[r][1]) === Number(participant.round);
       sheet
         .getRange(r + 1, 1, 1, PARTICIPANT_COLUMNS.length)
         .setValues([
           [
             participant.login,
-            values[r][1] || participant.startedAt,
+            participant.round,
+            // Новый раунд обнуляет отсчёт, в текущем — фиксируем первое значение.
+            sameRound ? values[r][2] || participant.startedAt : participant.startedAt,
             participant.lastSeenAt || new Date().toISOString(),
-            participant.finishedAt || values[r][3] || '',
+            sameRound ? participant.finishedAt || values[r][4] || '' : participant.finishedAt || '',
           ],
         ]);
       return;
@@ -170,6 +309,7 @@ function upsertReports(reports) {
       // Вердикт админа приоритетнее данных клиента: участник его не перетирает.
       var merged = {
         id: report.id,
+        round: report.round,
         login: report.login,
         title: report.title,
         steps: report.steps,
@@ -177,11 +317,11 @@ function upsertReports(reports) {
         actual: report.actual,
         severity: report.severity,
         area: report.area,
-        createdAt: current[8] || report.createdAt,
+        createdAt: current[9] || report.createdAt,
         elapsedSec: report.elapsedSec,
-        status: current[10] || 'pending',
-        score: current[11] || 0,
-        reviewComment: current[12] || '',
+        status: current[11] || 'pending',
+        score: current[12] || 0,
+        reviewComment: current[13] || '',
         updatedAt: new Date().toISOString(),
       };
       sheet
@@ -203,11 +343,23 @@ function upsertReports(reports) {
 
 function handleSnapshot() {
   return {
-    participants: readAll(getSheet(SHEET_PARTICIPANTS, PARTICIPANT_COLUMNS), PARTICIPANT_COLUMNS),
+    round: readState(),
+    participants: readAll(getSheet(SHEET_PARTICIPANTS, PARTICIPANT_COLUMNS), PARTICIPANT_COLUMNS).map(
+      function (p) {
+        p.round = Number(p.round) || 0;
+        p.startedAt = asIso(p.startedAt);
+        p.lastSeenAt = asIso(p.lastSeenAt);
+        p.finishedAt = asIso(p.finishedAt);
+        return p;
+      },
+    ),
     reports: readAll(getSheet(SHEET_REPORTS, REPORT_COLUMNS), REPORT_COLUMNS).map(function (r) {
+      r.round = Number(r.round) || 0;
       r.elapsedSec = Number(r.elapsedSec) || 0;
       r.score = Number(r.score) || 0;
       r.status = r.status || 'pending';
+      r.createdAt = asIso(r.createdAt);
+      r.updatedAt = asIso(r.updatedAt);
       return r;
     }),
   };
@@ -221,10 +373,10 @@ function handleVerdict(request) {
     var values = sheet.getDataRange().getValues();
     for (var r = 1; r < values.length; r++) {
       if (String(values[r][0]) === String(request.id)) {
-        sheet.getRange(r + 1, 11).setValue(request.status);
-        sheet.getRange(r + 1, 12).setValue(request.score);
-        sheet.getRange(r + 1, 13).setValue(request.reviewComment || '');
-        sheet.getRange(r + 1, 14).setValue(new Date().toISOString());
+        sheet.getRange(r + 1, 12).setValue(request.status);
+        sheet.getRange(r + 1, 13).setValue(request.score);
+        sheet.getRange(r + 1, 14).setValue(request.reviewComment || '');
+        sheet.getRange(r + 1, 15).setValue(new Date().toISOString());
         return { ok: true };
       }
     }

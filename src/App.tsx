@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { config } from '@/config';
-import { LoginPage } from '@/pages/LoginPage';
+import { HomePage } from '@/pages/HomePage';
 import { PlayerPage } from '@/pages/PlayerPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { guestLogin, storage } from '@/lib/storage';
@@ -56,7 +56,7 @@ export const App: React.FC = () => {
 
   const demoMode = !config.requireLogin;
 
-  if (!session) return <LoginPage onLogin={login} />;
+  if (!session) return <HomePage onLogin={login} />;
 
   if (session.role === 'admin') {
     return (

@@ -5,6 +5,8 @@ export type ValidationStatus = 'pending' | 'accepted' | 'rejected' | 'duplicate'
 export interface BugReport {
   /** Стабильный id, генерируется на клиенте — нужен для идемпотентной отправки. */
   id: string;
+  /** Номер раунда, в котором заведён дефект. */
+  round: number;
   /** Корпоративный логин участника. */
   login: string;
   title: string;
@@ -29,6 +31,8 @@ export interface BugReport {
 
 export interface Participant {
   login: string;
+  /** Раунд, в котором участник играет. */
+  round: number;
   /** Начало раунда, ISO. */
   startedAt: string;
   /** Последняя активность, ISO. */
@@ -44,6 +48,39 @@ export interface SessionState {
   adminSecret?: string;
 }
 
+/**
+ * Состояние конкурса. В онлайн-режиме живёт в Google-таблице и общее для всех;
+ * в офлайне — в localStorage браузера организатора.
+ */
+export interface RoundState {
+  /** Номер раунда; 0 — конкурс ещё не начинался. */
+  number: number;
+  status: 'idle' | 'running' | 'finished';
+  /** Название раунда, показывается участникам. */
+  title: string;
+  /** Начало раунда, ISO. */
+  startedAt: string;
+  /** Автоматическое окончание, ISO. Пусто — раунд без таймера. */
+  endsAt: string;
+  /** Фактическое закрытие раунда организатором, ISO. */
+  finishedAt: string;
+}
+
+export const EMPTY_ROUND: RoundState = {
+  number: 0,
+  status: 'idle',
+  title: '',
+  startedAt: '',
+  endsAt: '',
+  finishedAt: '',
+};
+
+export const ROUND_STATUS_LABELS: Record<RoundState['status'], string> = {
+  idle: 'Раунд не начался',
+  running: 'Раунд идёт',
+  finished: 'Раунд завершён',
+};
+
 export interface SyncPayload {
   participant: Participant;
   reports: BugReport[];
@@ -52,6 +89,7 @@ export interface SyncPayload {
 export interface AdminSnapshot {
   participants: Participant[];
   reports: BugReport[];
+  round: RoundState;
 }
 
 export const SEVERITY_LABELS: Record<Severity, string> = {

@@ -1,5 +1,11 @@
 import { config } from '@/config';
-import type { AdminSnapshot, BugReport, Participant, ValidationStatus } from './types';
+import type {
+  AdminSnapshot,
+  BugReport,
+  Participant,
+  RoundState,
+  ValidationStatus,
+} from './types';
 
 export const isOnlineMode = () => config.syncEndpoint.trim().length > 0;
 
@@ -22,9 +28,40 @@ async function call<T>(action: string, payload: Record<string, unknown>): Promis
   return data.result as T;
 }
 
-/** Отправка прогресса участника. Сервер выполняет upsert по id репорта — вызов идемпотентен. */
+/**
+ * Отправка прогресса участника. Сервер выполняет upsert по id репорта — вызов идемпотентен.
+ * В ответе приходит актуальное состояние раунда: так участник узнаёт о старте и
+ * завершении, даже если организатор нажал кнопку минуту назад.
+ */
 export function pushProgress(participant: Participant, reports: BugReport[]) {
-  return call<{ accepted: string[] }>('submit', { participant, reports });
+  return call<{ accepted: string[]; rejected: string[]; round: RoundState }>('submit', {
+    participant,
+    reports,
+  });
+}
+
+/** Состояние раунда без авторизации — его читают и участники. */
+export function fetchRound() {
+  return call<RoundState>('round', {});
+}
+
+/** Организатор открывает новый раунд. */
+export function startRound(
+  login: string,
+  password: string,
+  options: { title: string; durationMinutes: number },
+) {
+  return call<RoundState>('adminStartRound', { login, password, ...options });
+}
+
+/** Организатор закрывает раунд: приём дефектов прекращается. */
+export function finishRound(login: string, password: string) {
+  return call<RoundState>('adminFinishRound', { login, password });
+}
+
+/** Полный сброс конкурса: участники и дефекты удаляются, нумерация раундов обнуляется. */
+export function resetCompetition(login: string, password: string) {
+  return call<RoundState>('adminReset', { login, password });
 }
 
 /** Проверка пароля админа на стороне Apps Script. */

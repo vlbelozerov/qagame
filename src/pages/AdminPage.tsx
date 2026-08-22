@@ -8,15 +8,28 @@ import {
   RefreshCw,
   ShieldCheck,
   Upload,
+  Play,
+  RotateCcw,
+  Square,
   Users,
   Wand2,
 } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Card, CardContent, Modal, Spinner, cn } from '@/components/ui';
 import { storage } from '@/lib/storage';
-import { decodeSnapshot, fetchSnapshot, isOnlineMode, pushVerdict } from '@/lib/sync';
+import {
+  decodeSnapshot,
+  fetchSnapshot,
+  finishRound as finishRoundRequest,
+  isOnlineMode,
+  pushVerdict,
+  resetCompetition,
+  startRound as startRoundRequest,
+} from '@/lib/sync';
 import {
   AREA_LABELS,
+  EMPTY_ROUND,
+  ROUND_STATUS_LABELS,
   SEVERITY_LABELS,
   SEVERITY_POINTS,
   SEVERITY_STYLES,
@@ -24,6 +37,7 @@ import {
   STATUS_STYLES,
   type BugReport,
   type Participant,
+  type RoundState,
   type ValidationStatus,
 } from '@/lib/types';
 import type { KnownBug } from '@/lib/knownBugs';
@@ -58,6 +72,13 @@ export const AdminPage: React.FC<{
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('any');
   const [analyzing, setAnalyzing] = useState(false);
   const [autoNote, setAutoNote] = useState('');
+  const [round, setRound] = useState<RoundState>(() =>
+    isOnlineMode() ? EMPTY_ROUND : storage.getRound(),
+  );
+  const [roundTitle, setRoundTitle] = useState('');
+  const [roundMinutes, setRoundMinutes] = useState(config.roundMinutes);
+  const [roundBusy, setRoundBusy] = useState(false);
+  const [roundFilter, setRoundFilter] = useState<number | 'all'>('all');
 
   const load = useCallback(async () => {
     if (!isOnlineMode()) {
@@ -91,6 +112,7 @@ export const AdminPage: React.FC<{
       const snapshot = await fetchSnapshot(config.adminLogin, adminSecret);
       setParticipants(snapshot.participants);
       setReports(snapshot.reports);
+      setRound(snapshot.round);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить данные');
     } finally {
@@ -108,6 +130,75 @@ export const AdminPage: React.FC<{
     if (participants.length === 0 && reports.length === 0) return;
     storage.setAdminData({ participants, reports });
   }, [participants, reports]);
+
+  /**
+   * Управление раундом. В онлайне состояние живёт в таблице и доходит до всех участников;
+   * в офлайне пишем в localStorage — оно действует только в этом браузере.
+   */
+  async function applyRound(action: 'start' | 'finish' | 'reset') {
+    setRoundBusy(true);
+    setError('');
+    try {
+      if (isOnlineMode()) {
+        const next =
+          action === 'start'
+            ? await startRoundRequest(config.adminLogin, adminSecret, {
+                title: roundTitle.trim(),
+                durationMinutes: roundMinutes,
+              })
+            : action === 'finish'
+              ? await finishRoundRequest(config.adminLogin, adminSecret)
+              : await resetCompetition(config.adminLogin, adminSecret);
+        setRound(next);
+        if (action === 'reset') {
+          setParticipants([]);
+          setReports([]);
+          setMatches(new Map());
+        }
+        await load();
+      } else {
+        const now = new Date();
+        if (action === 'start') {
+          const next: RoundState = {
+            number: round.number + 1,
+            status: 'running',
+            title: roundTitle.trim(),
+            startedAt: now.toISOString(),
+            endsAt:
+              roundMinutes > 0
+                ? new Date(now.getTime() + roundMinutes * 60_000).toISOString()
+                : '',
+            finishedAt: '',
+          };
+          storage.setRound(next);
+          setRound(next);
+        } else if (action === 'finish') {
+          const next: RoundState = { ...round, status: 'finished', finishedAt: now.toISOString() };
+          storage.setRound(next);
+          setRound(next);
+        } else {
+          storage.clearAll();
+          storage.setRound(EMPTY_ROUND);
+          setRound(EMPTY_ROUND);
+          setParticipants([]);
+          setReports([]);
+          setMatches(new Map());
+        }
+      }
+      setRoundTitle('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось изменить состояние раунда');
+    } finally {
+      setRoundBusy(false);
+    }
+  }
+
+  function confirmReset() {
+    const ok = window.confirm(
+      'Начать новый конкурс? Все участники, дефекты и вердикты будут удалены безвозвратно, нумерация раундов обнулится.',
+    );
+    if (ok) void applyRound('reset');
+  }
 
   async function loadKnownBugs(): Promise<KnownBug[]> {
     if (knownBugs.length > 0) return knownBugs;
@@ -248,6 +339,7 @@ export const AdminPage: React.FC<{
       reports
         .filter((r) => (filter === 'all' ? true : r.status === filter))
         .filter((r) => (selectedLogin ? r.login === selectedLogin : true))
+        .filter((r) => (roundFilter === 'all' ? true : (r.round ?? 0) === roundFilter))
         .filter((r) => {
           if (matchFilter === 'any') return true;
           const m = matches.get(r.id);
@@ -255,7 +347,12 @@ export const AdminPage: React.FC<{
           return (m?.confidence ?? 'none') === matchFilter;
         })
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [reports, filter, selectedLogin, matchFilter, matches],
+    [reports, filter, selectedLogin, matchFilter, matches, roundFilter],
+  );
+
+  const availableRounds = useMemo(
+    () => [...new Set(reports.map((r) => r.round ?? 0))].sort((a, b) => a - b),
+    [reports],
   );
 
   /** Сводка авторазбора и покрытие эталонного списка. */
@@ -387,6 +484,90 @@ export const AdminPage: React.FC<{
           <Stat label="Подтверждено" value={reports.filter((r) => r.status === 'accepted').length} />
           <Stat label="На проверке" value={reports.filter((r) => r.status === 'pending').length} />
         </div>
+
+
+        <Card className={cn(round.status === 'running' && 'border-emerald-300')}>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold">Управление раундом</h3>
+              <Badge
+                className={cn(
+                  round.status === 'running'
+                    ? 'border-emerald-200 bg-emerald-100 text-emerald-800'
+                    : round.status === 'finished'
+                      ? 'border-rose-200 bg-rose-100 text-rose-800'
+                      : '',
+                )}
+                data-testid="admin-round-status"
+              >
+                {ROUND_STATUS_LABELS[round.status]}
+                {round.number > 0 && ` · раунд ${round.number}`}
+              </Badge>
+              {round.title && <span className="text-sm text-slate-500">{round.title}</span>}
+            </div>
+
+            {round.status !== 'running' ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[220px] flex-1">
+                  <label className="label">Название раунда — необязательно</label>
+                  <input
+                    className="field"
+                    value={roundTitle}
+                    onChange={(e) => setRoundTitle(e.target.value)}
+                    placeholder="Например: Финал, поток 2"
+                    data-testid="round-title"
+                  />
+                </div>
+                <div>
+                  <label className="label">Минут (0 — без таймера)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="field w-32"
+                    value={roundMinutes}
+                    onChange={(e) => setRoundMinutes(Math.max(0, Number(e.target.value) || 0))}
+                    data-testid="round-minutes"
+                  />
+                </div>
+                <Button onClick={() => void applyRound('start')} disabled={roundBusy} data-testid="start-round">
+                  {roundBusy ? <Spinner /> : <Play className="h-4 w-4" />}
+                  Начать раунд {round.number + 1}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm text-slate-600">
+                  Начат в {new Date(round.startedAt).toLocaleTimeString('ru-RU')}
+                  {round.endsAt
+                    ? ` · автозавершение в ${new Date(round.endsAt).toLocaleTimeString('ru-RU')}`
+                    : ' · без таймера, закроется вручную'}
+                  .
+                </p>
+                <Button
+                  variant="danger"
+                  onClick={() => void applyRound('finish')}
+                  disabled={roundBusy}
+                  data-testid="finish-round-admin"
+                >
+                  {roundBusy ? <Spinner /> : <Square className="h-4 w-4" />}
+                  Завершить раунд
+                </Button>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <Button variant="secondary" size="sm" onClick={confirmReset} disabled={roundBusy} data-testid="reset-competition">
+                <RotateCcw className="h-4 w-4" />
+                Новый конкурс — удалить все данные
+              </Button>
+              <span className="text-xs text-slate-500">
+                {isOnlineMode()
+                  ? 'Состояние раунда общее: участники увидят изменение в течение 10 секунд.'
+                  : 'Офлайн-режим: раунд управляется только в этом браузере — у других участников состояние своё.'}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
 
         {analysis && (
           <Card className="border-orange-200 bg-orange-50/60">
@@ -529,6 +710,26 @@ export const AdminPage: React.FC<{
               </Badge>
             </button>
           ))}
+          {availableRounds.length > 1 && (
+            <>
+              <span className="mx-1 h-4 w-px bg-slate-300" />
+              <select
+                className="field w-auto py-1 text-xs"
+                value={String(roundFilter)}
+                onChange={(e) =>
+                  setRoundFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+                }
+                data-testid="round-filter"
+              >
+                <option value="all">Все раунды</option>
+                {availableRounds.map((n) => (
+                  <option key={n} value={n}>
+                    Раунд {n}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           {analysis && (
             <>
               <span className="mx-1 h-4 w-px bg-slate-300" />

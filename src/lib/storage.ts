@@ -1,4 +1,4 @@
-import type { AdminSnapshot, BugReport, Participant, SessionState } from './types';
+import { EMPTY_ROUND, type AdminSnapshot, type BugReport, type Participant, type RoundState, type SessionState } from './types';
 
 const KEY = {
   session: 'qagame.session',
@@ -8,6 +8,8 @@ const KEY = {
   synced: 'qagame.synced',
   /** Сводка админки в офлайн-режиме: импортированные участники и проставленные вердикты. */
   admin: 'qagame.admin',
+  /** Состояние раунда в офлайн-режиме. */
+  round: 'qagame.round',
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -44,14 +46,23 @@ export const storage = {
     write(KEY.synced, [...merged]);
   },
 
-  getAdminData: () => read<AdminSnapshot>(KEY.admin, { participants: [], reports: [] }),
-  setAdminData: (data: AdminSnapshot) => write(KEY.admin, data),
+  getRound: () => read<RoundState>(KEY.round, EMPTY_ROUND),
+  setRound: (r: RoundState) => write(KEY.round, r),
+
+  getAdminData: () =>
+    read<Omit<AdminSnapshot, 'round'>>(KEY.admin, { participants: [], reports: [] }),
+  setAdminData: (data: Omit<AdminSnapshot, 'round'>) => write(KEY.admin, data),
 
   /** Полный сброс данных участника — используется при смене участника в одном браузере. */
   clearPlayerData: () => {
     [KEY.session, KEY.participant, KEY.reports, KEY.synced].forEach((k) =>
       localStorage.removeItem(k),
     );
+  },
+
+  /** Полный сброс конкурса в офлайн-режиме. */
+  clearAll: () => {
+    Object.values(KEY).forEach((k) => localStorage.removeItem(k));
   },
 };
 
