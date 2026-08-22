@@ -45,11 +45,20 @@ async function call<T>(action: string, payload: Record<string, unknown>): Promis
  * В ответе приходит актуальное состояние раунда: так участник узнаёт о старте и
  * завершении, даже если организатор нажал кнопку минуту назад.
  */
-export function pushProgress(participant: Participant, reports: BugReport[]) {
-  return call<{ accepted: string[]; rejected: string[]; round: RoundState }>('submit', {
-    participant,
-    reports,
-  });
+export interface SubmitResult {
+  accepted: string[];
+  rejected: string[];
+  round: RoundState;
+  /** Вердикты организатора по репортам участника — без них статус вечно «на проверке». */
+  verdicts: { id: string; status: ValidationStatus; score: number; reviewComment: string }[];
+}
+
+export function pushProgress(
+  participant: Participant,
+  reports: BugReport[],
+  deletedIds: string[] = [],
+) {
+  return call<SubmitResult>('submit', { participant, reports, deletedIds });
 }
 
 /** Состояние раунда без авторизации — его читают и участники. */

@@ -10,6 +10,8 @@ const KEY = {
   admin: 'qagame.admin',
   /** Состояние раунда в офлайн-режиме. */
   round: 'qagame.round',
+  /** id репортов, которые участник удалил, — их надо убрать и на сервере. */
+  deleted: 'qagame.deleted',
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -46,6 +48,13 @@ export const storage = {
     write(KEY.synced, [...merged]);
   },
 
+  getDeletedIds: () => read<string[]>(KEY.deleted, []),
+  addDeletedId: (id: string) => {
+    const merged = new Set([...read<string[]>(KEY.deleted, []), id]);
+    write(KEY.deleted, [...merged]);
+  },
+  clearDeletedIds: () => write(KEY.deleted, []),
+
   getRound: () => read<RoundState>(KEY.round, EMPTY_ROUND),
   setRound: (r: RoundState) => write(KEY.round, r),
 
@@ -55,7 +64,7 @@ export const storage = {
 
   /** Полный сброс данных участника — используется при смене участника в одном браузере. */
   clearPlayerData: () => {
-    [KEY.session, KEY.participant, KEY.reports, KEY.synced].forEach((k) =>
+    [KEY.session, KEY.participant, KEY.reports, KEY.synced, KEY.deleted].forEach((k) =>
       localStorage.removeItem(k),
     );
   },

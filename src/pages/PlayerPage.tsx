@@ -146,10 +146,24 @@ export const PlayerPage: React.FC<{
         ...latest.current.participant,
         lastSeenAt: new Date().toISOString(),
       };
-      const result = await pushProgress(snapshot, latest.current.reports);
+      const deleted = storage.getDeletedIds();
+      const result = await pushProgress(snapshot, latest.current.reports, deleted);
       storage.addSyncedIds(result.accepted);
+      if (deleted.length > 0) storage.clearDeletedIds();
       // Сервер возвращает актуальный раунд — узнаём о старте и закрытии без лишнего запроса.
       if (result.round) setRound(result.round);
+      // И вердикты организатора: без них у участника всё висело бы «на проверке».
+      if (result.verdicts?.length) {
+        const byId = new Map(result.verdicts.map((v) => [v.id, v]));
+        setReports((prev) =>
+          prev.map((r) => {
+            const v = byId.get(r.id);
+            return v && v.status !== r.status
+              ? { ...r, status: v.status, score: v.score, reviewComment: v.reviewComment }
+              : r;
+          }),
+        );
+      }
       setSyncState('ok');
       setSyncError(
         result.rejected && result.rejected.length > 0
@@ -237,6 +251,8 @@ export const PlayerPage: React.FC<{
 
   function deleteReport(id: string) {
     setReports((prev) => prev.filter((r) => r.id !== id));
+    // Локального удаления мало: без этого строка осталась бы у организатора.
+    storage.addDeletedId(id);
     setTimeout(() => void sync(true), 0);
   }
 
@@ -416,6 +432,7 @@ export const PlayerPage: React.FC<{
       </main>
 
       <BugListModal
+        canEdit={roundOpen}
         open={listOpen}
         onClose={() => setListOpen(false)}
         reports={roundReports}
@@ -487,6 +504,8 @@ const SyncBadge: React.FC<{ state: SyncState; error: string; onRetry: () => void
 };
 
 const BugListModal: React.FC<{
+  /** Правки разрешены только пока раунд идёт: после закрытия список только для чтения. */
+  canEdit: boolean;
   open: boolean;
   onClose: () => void;
   reports: BugReport[];
@@ -494,7 +513,7 @@ const BugListModal: React.FC<{
   onCreate: () => void;
   onEdit: (r: BugReport) => void;
   onDelete: (id: string) => void;
-}> = ({ open, onClose, reports, stats, onCreate, onEdit, onDelete }) => (
+}> = ({ canEdit, open, onClose, reports, stats, onCreate, onEdit, onDelete }) => (
   <Modal open={open} onClose={onClose} title={`Мои дефекты — ${stats.total}`} wide>
     <div className="space-y-3">
       {reports.length === 0 ? (
@@ -514,21 +533,44 @@ const BugListModal: React.FC<{
       )}
 
       <div className="max-h-[55vh] space-y-2 overflow-y-auto">
-        {reports.map((r) => (
+        {reports.map((r) => {
+          // Разобранное организатором не трогаем: вердикт вынесен по конкретному тексту.
+          const editable = canEdit && r.status === 'pending';
+          return (
           <div key={r.id} className="rounded-xl border border-slate-200 p-3">
             <div className="flex items-start gap-2">
               <p className="flex-1 font-medium leading-tight">{r.title}</p>
-              <Button variant="ghost" size="sm" onClick={() => onEdit(r)} aria-label="Редактировать">
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onDelete(r.id)}
-                aria-label="Удалить"
-              >
-                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-              </Button>
+              {editable ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onEdit(r)}
+                    aria-label="Редактировать"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDelete(r.id)}
+                    aria-label="Удалить"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                  </Button>
+                </>
+              ) : (
+                <span
+                  className="mt-1 text-slate-400"
+                  title={
+                    r.status !== 'pending'
+                      ? 'Организатор уже проверил эту находку — изменить её нельзя'
+                      : 'Раунд закрыт — изменить находку нельзя'
+                  }
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                </span>
+              )}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <Badge>{AREA_LABELS[r.area]}</Badge>
@@ -537,19 +579,30 @@ const BugListModal: React.FC<{
                 <Clock className="h-3 w-3" />
                 {formatDuration(r.elapsedSec)}
               </Badge>
+              {r.status === 'accepted' && r.score > 0 && (
+                <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
+                  +{r.score} баллов
+                </Badge>
+              )}
             </div>
+            {r.reviewComment && (
+              <p className="mt-1 text-xs text-slate-500">{r.reviewComment}</p>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
         <Button variant="secondary" onClick={onClose}>
           Закрыть
         </Button>
-        <Button onClick={onCreate}>
-          <Plus className="h-4 w-4" />
-          Завести дефект
-        </Button>
+        {canEdit && (
+          <Button onClick={onCreate}>
+            <Plus className="h-4 w-4" />
+            Завести дефект
+          </Button>
+        )}
       </div>
     </div>
   </Modal>

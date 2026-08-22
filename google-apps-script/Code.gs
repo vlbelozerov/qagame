@@ -270,9 +270,54 @@ function handleSubmit(request) {
     });
 
     var accepted = upsertReports(allowed);
-    return { accepted: accepted, rejected: rejected, round: state };
+    removeReports(request.deletedIds || []);
+
+    return {
+      accepted: accepted,
+      rejected: rejected,
+      round: state,
+      // Возвращаем вердикты, иначе у участника всё навсегда остаётся «на проверке».
+      verdicts: verdictsFor(request.participant && request.participant.login),
+    };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/** Текущие вердикты по репортам участника — их клиент показывает в «Моих дефектах». */
+function verdictsFor(login) {
+  if (!login) return [];
+  var sheet = getSheet(SHEET_REPORTS, REPORT_COLUMNS);
+  var values = sheet.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][2]) !== String(login)) continue;
+    out.push({
+      id: String(values[r][0]),
+      status: String(values[r][11] || 'pending'),
+      score: Number(values[r][12]) || 0,
+      reviewComment: String(values[r][13] || ''),
+    });
+  }
+  return out;
+}
+
+/**
+ * Удаление репортов, которые участник убрал у себя. Разобранные не трогаем:
+ * вердикт организатора важнее желания участника подчистить список.
+ */
+function removeReports(ids) {
+  if (!ids || ids.length === 0) return;
+  var sheet = getSheet(SHEET_REPORTS, REPORT_COLUMNS);
+  var values = sheet.getDataRange().getValues();
+  var wanted = {};
+  ids.forEach(function (id) {
+    wanted[String(id)] = true;
+  });
+  // Идём снизу вверх: удаление строки сдвигает те, что ниже.
+  for (var r = values.length - 1; r >= 1; r--) {
+    var status = String(values[r][11] || 'pending');
+    if (wanted[String(values[r][0])] && status === 'pending') sheet.deleteRow(r + 1);
   }
 }
 
@@ -318,6 +363,12 @@ function upsertReports(reports) {
     var existingRow = rowById[String(report.id)];
     if (existingRow) {
       var current = values[existingRow - 1];
+      // Разобранный репорт участник править уже не может: организатор вынес вердикт
+      // по конкретному тексту, и подменять его задним числом нельзя.
+      if (String(current[11] || 'pending') !== 'pending') {
+        accepted.push(report.id);
+        return;
+      }
       // Вердикт админа приоритетнее данных клиента: участник его не перетирает.
       var merged = {
         id: report.id,
