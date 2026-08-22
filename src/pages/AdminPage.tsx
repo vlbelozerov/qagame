@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Upload,
   Play,
+  PartyPopper,
   RotateCcw,
   Square,
   Users,
@@ -48,6 +49,7 @@ import {
   type MatchConfidence,
   type MatchResult,
 } from '@/lib/matcher';
+import { buildRoundReport, reportToText, type RoundReport } from '@/lib/roundReport';
 import { formatDuration } from './PlayerPage';
 
 type Filter = 'all' | ValidationStatus;
@@ -86,6 +88,8 @@ export const AdminPage: React.FC<{
   const [roundMinutes, setRoundMinutes] = useState(config.roundMinutes);
   const [roundBusy, setRoundBusy] = useState(false);
   const [roundFilter, setRoundFilter] = useState<number | 'all'>('all');
+  const [report, setReport] = useState<RoundReport | null>(null);
+  const [reportCopied, setReportCopied] = useState(false);
 
   const load = useCallback(async () => {
     if (!isOnlineMode()) {
@@ -198,6 +202,20 @@ export const AdminPage: React.FC<{
     } finally {
       setRoundBusy(false);
     }
+  }
+
+  /** Итоги раунда: номинации считаются по принятым дефектам текущего разбора. */
+  async function openReport() {
+    const bugs = await loadKnownBugs();
+    let current = matches;
+    // Без разбора не с чем сопоставлять находки — запускаем его молча.
+    if (current.size === 0) {
+      current = matchAll(reports, bugs);
+      setMatches(current);
+    }
+    const target = roundFilter === 'all' ? round.number || 1 : roundFilter;
+    setReport(buildRoundReport(target, reports, current, bugs));
+    setReportCopied(false);
   }
 
   function confirmReset() {
@@ -373,6 +391,11 @@ export const AdminPage: React.FC<{
 
   const bugByCode = useMemo(() => new Map(knownBugs.map((b) => [b.code, b])), [knownBugs]);
 
+  const pendingCount = useMemo(
+    () => reports.filter((r) => r.status === 'pending').length,
+    [reports],
+  );
+
   const availableRounds = useMemo(
     () => [...new Set(reports.map((r) => r.round ?? 0))].sort((a, b) => a - b),
     [reports],
@@ -469,6 +492,16 @@ export const AdminPage: React.FC<{
               {analyzing ? <Spinner /> : <Wand2 className="h-4 w-4" />}
               Авторазбор
             </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void openReport()}
+              disabled={reports.length === 0}
+              data-testid="open-report"
+            >
+              <PartyPopper className="h-4 w-4" />
+              Итоги раунда
+            </Button>
             <Button size="sm" variant="secondary" onClick={openReference}>
               <BookOpen className="h-4 w-4" />
               Эталонный список
@@ -505,7 +538,7 @@ export const AdminPage: React.FC<{
           <Stat label="Участников" value={leaderboard.length} />
           <Stat label="Всего дефектов" value={reports.length} />
           <Stat label="Подтверждено" value={reports.filter((r) => r.status === 'accepted').length} />
-          <Stat label="На проверке" value={reports.filter((r) => r.status === 'pending').length} />
+          <Stat label="На проверке" value={pendingCount} />
         </div>
 
 
@@ -836,6 +869,88 @@ export const AdminPage: React.FC<{
         onClose={() => setImportOpen(false)}
         onImport={importCode}
       />
+
+      <Modal
+        open={report !== null}
+        onClose={() => setReport(null)}
+        title={report ? `Итоги раунда ${report.round}` : 'Итоги раунда'}
+        wide
+      >
+        {report && (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Stat label="Участников" value={report.participants} />
+              <Stat label="Засчитано находок" value={report.accepted} />
+              <Stat label="Найдено дефектов" value={report.foundBugs} />
+            </div>
+
+            {pendingCount > 0 && (
+              <Alert tone="info">
+                Ещё не разобрано: {pendingCount}. Номинации считаются только по подтверждённым
+                находкам, поэтому итоги стоит смотреть после разбора.
+              </Alert>
+            )}
+
+            {report.nominations.length === 0 ? (
+              <Alert tone="info">
+                Пока нет ни одной подтверждённой находки — номинации появятся после разбора.
+              </Alert>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {report.nominations.map((n) => (
+                  <div
+                    key={n.key}
+                    className="rounded-xl border border-slate-200 p-3"
+                    data-testid={`nomination-${n.key}`}
+                  >
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      {n.emoji} {n.title}
+                    </p>
+                    <p className="font-semibold">{n.winner}</p>
+                    <p className="text-sm text-slate-600">{n.detail}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {report.missed.length > 0 && (
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="font-medium">
+                  Не нашёл никто: {report.missed.length} из {report.knownBugs}
+                </p>
+                <ul className="mt-1 space-y-0.5 text-sm text-slate-600">
+                  {report.missed.map((bug) => (
+                    <li key={bug.code}>
+                      <span className="font-mono text-xs text-slate-500">{bug.code}</span>{' '}
+                      {bug.title}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+              <Button variant="secondary" onClick={() => setReport(null)}>
+                Закрыть
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(reportToText(report));
+                    setReportCopied(true);
+                  } catch {
+                    setReportCopied(false);
+                  }
+                }}
+                data-testid="copy-report"
+              >
+                <Copy className="h-4 w-4" />
+                {reportCopied ? 'Скопировано' : 'Скопировать для чата'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={referenceOpen}
