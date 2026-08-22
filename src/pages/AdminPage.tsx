@@ -364,6 +364,8 @@ export const AdminPage: React.FC<{
     [reports, filter, selectedLogin, matchFilter, matches, roundFilter],
   );
 
+  const bugByCode = useMemo(() => new Map(knownBugs.map((b) => [b.code, b])), [knownBugs]);
+
   const availableRounds = useMemo(
     () => [...new Set(reports.map((r) => r.round ?? 0))].sort((a, b) => a - b),
     [reports],
@@ -765,7 +767,15 @@ export const AdminPage: React.FC<{
 
         <div className="space-y-3">
           {visibleReports.map((r) => (
-            <ReportRow key={r.id} report={r} match={matches.get(r.id)} onVerdict={setVerdict} />
+            <ReportRow
+              key={r.id}
+              report={r}
+              match={matches.get(r.id)}
+              knownBug={
+                matches.get(r.id)?.code ? bugByCode.get(matches.get(r.id)!.code) : undefined
+              }
+              onVerdict={setVerdict}
+            />
           ))}
         </div>
       </main>
@@ -854,8 +864,10 @@ const ReportRow: React.FC<{
   report: BugReport;
   /** Результат авторазбора, если он запускался. */
   match?: MatchResult;
+  /** Эталонный дефект, на который указал разбор, — его текст нужен для сверки глазами. */
+  knownBug?: KnownBug;
   onVerdict: (r: BugReport, patch: Partial<BugReport>) => void;
-}> = ({ report, match, onVerdict }) => {
+}> = ({ report, match, knownBug, onVerdict }) => {
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState(report.reviewComment);
 
@@ -895,6 +907,30 @@ const ReportRow: React.FC<{
             </Badge>
           )}
         </div>
+
+        {knownBug && match && (
+          <div
+            className={cn(
+              'rounded-lg border px-3 py-2 text-sm',
+              match.confidence === 'high'
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-amber-200 bg-amber-50',
+            )}
+            data-testid="match-detail"
+          >
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              {match.confidence === 'high' ? 'Распознано как' : 'Похоже на'} · {knownBug.code}
+              {match.duplicate && ' · повтор'}
+            </p>
+            <p className="font-medium">{knownBug.title}</p>
+            <p className="text-slate-600">{knownBug.hint}</p>
+            {match.matched.length > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                Сработали слова: {match.matched.join(', ')}
+              </p>
+            )}
+          </div>
+        )}
 
         {open && (
           <div className="space-y-3 border-t border-slate-100 pt-3">
