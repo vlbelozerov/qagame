@@ -70,6 +70,7 @@ export const AdminPage: React.FC<{
   const [importOpen, setImportOpen] = useState(false);
   const [referenceOpen, setReferenceOpen] = useState(false);
   const [knownBugs, setKnownBugs] = useState<KnownBug[]>([]);
+  const [knownBugsError, setKnownBugsError] = useState('');
   const [matches, setMatches] = useState<Map<string, MatchResult>>(new Map());
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('any');
   const [analyzing, setAnalyzing] = useState(false);
@@ -210,8 +211,19 @@ export const AdminPage: React.FC<{
   }
 
   async function openReference() {
-    await loadKnownBugs();
+    // Окно открываем сразу: если чанк со списком не загрузится, пользователь должен
+    // увидеть причину, а не молча ничего не получить по нажатию.
     setReferenceOpen(true);
+    setKnownBugsError('');
+    try {
+      await loadKnownBugs();
+    } catch {
+      setKnownBugsError(
+        'Не удалось загрузить эталонный список. Обычно помогает обновление страницы ' +
+          'с Ctrl+Shift+R: браузер держит в кэше старую версию приложения и просит файл, ' +
+          'которого после обновления сайта уже нет.',
+      );
+    }
   }
 
   /** Сопоставляет все репорты с эталонным списком по ключевым словам. */
@@ -771,10 +783,18 @@ export const AdminPage: React.FC<{
         wide
       >
         <div className="space-y-2">
-          <p className="text-sm text-slate-500">
-            Всего заложено дефектов: {knownBugs.length}. Список нужен только для валидации — не
-            показывайте его участникам до конца раунда.
-          </p>
+          {knownBugsError && <Alert tone="error">{knownBugsError}</Alert>}
+          {!knownBugsError && knownBugs.length === 0 && (
+            <p className="flex items-center gap-2 text-sm text-slate-500">
+              <Spinner /> Загружаю список…
+            </p>
+          )}
+          {knownBugs.length > 0 && (
+            <p className="text-sm text-slate-500">
+              Всего заложено дефектов: {knownBugs.length}. Список нужен только для валидации — не
+              показывайте его участникам до конца раунда.
+            </p>
+          )}
           {analysis && (
             <p className="text-sm text-slate-600">
               По итогам авторазбора найдено <b>{analysis.foundCodes.size}</b> из{' '}

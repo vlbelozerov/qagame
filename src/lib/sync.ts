@@ -16,12 +16,24 @@ export const isOnlineMode = () => config.syncEndpoint.trim().length > 0;
  * Поэтому JSON уходит телом с типом text/plain.
  */
 async function call<T>(action: string, payload: Record<string, unknown>): Promise<T> {
-  const res = await fetch(config.syncEndpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, ...payload }),
-    redirect: 'follow',
-  });
+  let res: Response;
+  try {
+    res = await fetch(config.syncEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ...payload }),
+      redirect: 'follow',
+    });
+  } catch {
+    // «Failed to fetch» здесь почти всегда означает не обрыв сети, а редирект на
+    // страницу входа Google: у развёртывания доступ не «у всех». В адресной строке
+    // это незаметно — там мы залогинены, — поэтому подсказываем прямо.
+    throw new Error(
+      'Сервер конкурса недоступен. Проверьте развёртывание Apps Script: ' +
+        '«У кого есть доступ» должно быть «у всех», иначе браузер не может обратиться ' +
+        'к нему со страницы. После смены настроек создайте новое развёртывание.',
+    );
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { ok: boolean; error?: string; result?: T };
   if (!data.ok) throw new Error(data.error || 'Неизвестная ошибка сервера');
