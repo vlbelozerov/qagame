@@ -61,6 +61,7 @@ export const App: React.FC = () => {
   if (session.role === 'admin') {
     return (
       <AdminPage
+        adminName={session.login}
         adminSecret={session.adminSecret ?? ''}
         onLogout={logout}
         onSwitchRole={demoMode ? switchRole : undefined}

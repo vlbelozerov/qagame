@@ -76,20 +76,22 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
       return onLogin({ role: 'player', login: login.trim().toLowerCase() });
     }
 
-    if (login.trim().toLowerCase() !== config.adminLogin.toLowerCase()) {
-      return setError('Неверный логин или пароль');
-    }
-
+    const adminName = login.trim();
     setBusy(true);
     try {
       if (isOnlineMode()) {
-        // Пароль проверяется на стороне Apps Script — в бандле его нет.
-        await adminLogin(config.adminLogin, password);
+        // Логин и пароль сверяет Apps Script со своими свойствами скрипта.
+        // Локально логин НЕ проверяем: в ADMIN_LOGIN может стоять что угодно,
+        // и клиент не должен отклонять вход раньше сервера.
+        await adminLogin(adminName, password);
       } else {
+        if (adminName.toLowerCase() !== config.adminLogin.toLowerCase()) {
+          throw new Error('Неверный логин или пароль');
+        }
         const hash = await sha256Hex(password);
         if (hash !== config.adminPasswordSha256) throw new Error('Неверный логин или пароль');
       }
-      onLogin({ role: 'admin', login: config.adminLogin, adminSecret: password });
+      onLogin({ role: 'admin', login: adminName, adminSecret: password });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось войти');
     } finally {

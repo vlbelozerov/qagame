@@ -54,11 +54,13 @@ type Filter = 'all' | ValidationStatus;
 type MatchFilter = 'any' | MatchConfidence | 'duplicate';
 
 export const AdminPage: React.FC<{
+  /** Логин, под которым организатор вошёл, — им же авторизуем запросы к серверу. */
+  adminName: string;
   adminSecret: string;
   onLogout: () => void;
   /** Задан только в демо-режиме: возврат к экрану участника. */
   onSwitchRole?: () => void;
-}> = ({ adminSecret, onLogout, onSwitchRole }) => {
+}> = ({ adminName, adminSecret, onLogout, onSwitchRole }) => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [reports, setReports] = useState<BugReport[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,7 +111,7 @@ export const AdminPage: React.FC<{
     setLoading(true);
     setError('');
     try {
-      const snapshot = await fetchSnapshot(config.adminLogin, adminSecret);
+      const snapshot = await fetchSnapshot(adminName, adminSecret);
       setParticipants(snapshot.participants);
       setReports(snapshot.reports);
       setRound(snapshot.round);
@@ -118,7 +120,7 @@ export const AdminPage: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, [adminSecret]);
+  }, [adminName, adminSecret]);
 
   useEffect(() => {
     void load();
@@ -142,13 +144,13 @@ export const AdminPage: React.FC<{
       if (isOnlineMode()) {
         const next =
           action === 'start'
-            ? await startRoundRequest(config.adminLogin, adminSecret, {
+            ? await startRoundRequest(adminName, adminSecret, {
                 title: roundTitle.trim(),
                 durationMinutes: roundMinutes,
               })
             : action === 'finish'
-              ? await finishRoundRequest(config.adminLogin, adminSecret)
-              : await resetCompetition(config.adminLogin, adminSecret);
+              ? await finishRoundRequest(adminName, adminSecret)
+              : await resetCompetition(adminName, adminSecret);
         setRound(next);
         if (action === 'reset') {
           setParticipants([]);
@@ -234,7 +236,7 @@ export const AdminPage: React.FC<{
     if (!isOnlineMode()) return;
     for (const updated of byId.values()) {
       try {
-        await pushVerdict(config.adminLogin, adminSecret, {
+        await pushVerdict(adminName, adminSecret, {
           id: updated.id,
           status: updated.status,
           score: updated.score,
@@ -292,7 +294,7 @@ export const AdminPage: React.FC<{
     setReports((prev) => prev.map((r) => (r.id === report.id ? updated : r)));
     if (!isOnlineMode()) return;
     try {
-      await pushVerdict(config.adminLogin, adminSecret, {
+      await pushVerdict(adminName, adminSecret, {
         id: updated.id,
         status: updated.status,
         score: updated.score,

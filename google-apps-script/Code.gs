@@ -72,17 +72,29 @@ function json(payload) {
   );
 }
 
+/**
+ * Сверка организатора со свойствами скрипта.
+ *
+ * Пробелы по краям срезаются с обеих сторон: при копировании значения в свойства
+ * скрипта легко прихватить лишний символ, а отличить такую опечатку по одинаковому
+ * сообщению об ошибке невозможно. Сообщения намеренно разные — это внутренний
+ * инструмент, и организатору важнее понять, что именно не совпало.
+ */
 function requireAdmin(request) {
   var props = PropertiesService.getScriptProperties();
-  var expectedLogin = props.getProperty('ADMIN_LOGIN') || 'admin';
-  var expectedPassword = props.getProperty('ADMIN_PASSWORD');
+  var expectedLogin = trim(props.getProperty('ADMIN_LOGIN') || 'admin');
+  var expectedPassword = trim(props.getProperty('ADMIN_PASSWORD'));
   if (!expectedPassword) throw new Error('На сервере не задан ADMIN_PASSWORD');
-  if (String(request.login || '').toLowerCase() !== expectedLogin.toLowerCase()) {
-    throw new Error('Неверный логин или пароль');
+  if (trim(request.login).toLowerCase() !== expectedLogin.toLowerCase()) {
+    throw new Error('Неверный логин организатора: на сервере задан другой ADMIN_LOGIN');
   }
-  if (String(request.password || '') !== expectedPassword) {
-    throw new Error('Неверный логин или пароль');
+  if (trim(request.password) !== expectedPassword) {
+    throw new Error('Неверный пароль организатора');
   }
+}
+
+function trim(value) {
+  return String(value === undefined || value === null ? '' : value).trim();
 }
 
 function getSheet(name, columns) {
