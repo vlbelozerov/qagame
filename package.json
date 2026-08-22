@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && npm run check:matcher && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "check:matcher": "tsx scripts/check-matcher.ts"
   },
   "dependencies": {
     "lucide-react": "^0.451.0",
@@ -22,6 +23,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
+    "tsx": "^4.23.12",
     "typescript": "^5.6.2",
     "vite": "^5.4.8"
   }

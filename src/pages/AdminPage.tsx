@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
+  Copy,
   Download,
   Gamepad2,
   LogOut,
@@ -8,6 +9,7 @@ import {
   ShieldCheck,
   Upload,
   Users,
+  Wand2,
 } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Card, CardContent, Modal, Spinner, cn } from '@/components/ui';
@@ -25,9 +27,17 @@ import {
   type ValidationStatus,
 } from '@/lib/types';
 import type { KnownBug } from '@/lib/knownBugs';
+import {
+  CONFIDENCE_LABELS,
+  CONFIDENCE_STYLES,
+  matchAll,
+  type MatchConfidence,
+  type MatchResult,
+} from '@/lib/matcher';
 import { formatDuration } from './PlayerPage';
 
 type Filter = 'all' | ValidationStatus;
+type MatchFilter = 'any' | MatchConfidence | 'duplicate';
 
 export const AdminPage: React.FC<{
   adminSecret: string;
@@ -44,6 +54,10 @@ export const AdminPage: React.FC<{
   const [importOpen, setImportOpen] = useState(false);
   const [referenceOpen, setReferenceOpen] = useState(false);
   const [knownBugs, setKnownBugs] = useState<KnownBug[]>([]);
+  const [matches, setMatches] = useState<Map<string, MatchResult>>(new Map());
+  const [matchFilter, setMatchFilter] = useState<MatchFilter>('any');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [autoNote, setAutoNote] = useState('');
 
   const load = useCallback(async () => {
     if (!isOnlineMode()) {
@@ -95,12 +109,91 @@ export const AdminPage: React.FC<{
     storage.setAdminData({ participants, reports });
   }, [participants, reports]);
 
+  async function loadKnownBugs(): Promise<KnownBug[]> {
+    if (knownBugs.length > 0) return knownBugs;
+    const mod = await import('@/lib/knownBugs');
+    setKnownBugs(mod.KNOWN_BUGS);
+    return mod.KNOWN_BUGS;
+  }
+
   async function openReference() {
-    if (knownBugs.length === 0) {
-      const mod = await import('@/lib/knownBugs');
-      setKnownBugs(mod.KNOWN_BUGS);
-    }
+    await loadKnownBugs();
     setReferenceOpen(true);
+  }
+
+  /** Сопоставляет все репорты с эталонным списком по ключевым словам. */
+  async function runAnalysis() {
+    setAnalyzing(true);
+    setAutoNote('');
+    try {
+      const bugs = await loadKnownBugs();
+      setMatches(matchAll(reports, bugs));
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  /** Пакетная простановка вердиктов: одно обновление состояния, затем отправка на сервер. */
+  async function applyVerdicts(patches: { report: BugReport; patch: Partial<BugReport> }[]) {
+    if (patches.length === 0) return;
+    const stamp = new Date().toISOString();
+    const byId = new Map(patches.map((p) => [p.report.id, { ...p.report, ...p.patch, updatedAt: stamp }]));
+    setReports((prev) => prev.map((r) => byId.get(r.id) ?? r));
+
+    if (!isOnlineMode()) return;
+    for (const updated of byId.values()) {
+      try {
+        await pushVerdict(config.adminLogin, adminSecret, {
+          id: updated.id,
+          status: updated.status,
+          score: updated.score,
+          reviewComment: updated.reviewComment,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Часть вердиктов не сохранилась на сервере');
+        return;
+      }
+    }
+  }
+
+  /** Принимает уверенно распознанные находки; баллы берутся по серьёзности эталонного дефекта. */
+  async function acceptConfident() {
+    const bugByCode = new Map(knownBugs.map((b) => [b.code, b]));
+    const patches = reports
+      .filter((r) => r.status === 'pending')
+      .map((r) => ({ report: r, match: matches.get(r.id) }))
+      .filter((x) => x.match?.confidence === 'high' && !x.match.duplicate)
+      .map(({ report, match }) => {
+        const bug = bugByCode.get(match!.code);
+        return {
+          report,
+          patch: {
+            status: 'accepted' as const,
+            score: bug ? SEVERITY_POINTS[bug.severity] : SEVERITY_POINTS[report.severity],
+            reviewComment: `Авторазбор: ${match!.code}`,
+          },
+        };
+      });
+    await applyVerdicts(patches);
+    setAutoNote(`Принято автоматически: ${patches.length}`);
+  }
+
+  /** Помечает повторные находки одного участника по тому же дефекту. */
+  async function markDuplicates() {
+    const patches = reports
+      .filter((r) => r.status === 'pending')
+      .map((r) => ({ report: r, match: matches.get(r.id) }))
+      .filter((x) => x.match?.confidence === 'high' && x.match.duplicate)
+      .map(({ report, match }) => ({
+        report,
+        patch: {
+          status: 'duplicate' as const,
+          score: 0,
+          reviewComment: `Авторазбор: повтор ${match!.code}`,
+        },
+      }));
+    await applyVerdicts(patches);
+    setAutoNote(`Помечено дубликатов: ${patches.length}`);
   }
 
   async function setVerdict(report: BugReport, patch: Partial<BugReport>) {
@@ -155,9 +248,39 @@ export const AdminPage: React.FC<{
       reports
         .filter((r) => (filter === 'all' ? true : r.status === filter))
         .filter((r) => (selectedLogin ? r.login === selectedLogin : true))
+        .filter((r) => {
+          if (matchFilter === 'any') return true;
+          const m = matches.get(r.id);
+          if (matchFilter === 'duplicate') return Boolean(m?.duplicate);
+          return (m?.confidence ?? 'none') === matchFilter;
+        })
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [reports, filter, selectedLogin],
+    [reports, filter, selectedLogin, matchFilter, matches],
   );
+
+  /** Сводка авторазбора и покрытие эталонного списка. */
+  const analysis = useMemo(() => {
+    if (matches.size === 0) return null;
+    const pending = reports.filter((r) => r.status === 'pending');
+    const counts = { high: 0, low: 0, none: 0, duplicates: 0 };
+    const foundCodes = new Map<string, Set<string>>();
+    reports.forEach((r) => {
+      const m = matches.get(r.id);
+      if (!m) return;
+      if (m.code) {
+        const who = foundCodes.get(m.code) ?? new Set<string>();
+        who.add(r.login);
+        foundCodes.set(m.code, who);
+      }
+    });
+    pending.forEach((r) => {
+      const m = matches.get(r.id);
+      if (!m) return;
+      if (m.confidence === 'high' && m.duplicate) counts.duplicates += 1;
+      else counts[m.confidence] += 1;
+    });
+    return { counts, foundCodes };
+  }, [matches, reports]);
 
   function exportCsv() {
     const header = [
@@ -217,6 +340,15 @@ export const AdminPage: React.FC<{
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => void runAnalysis()}
+              disabled={analyzing || reports.length === 0}
+              data-testid="run-analysis"
+            >
+              {analyzing ? <Spinner /> : <Wand2 className="h-4 w-4" />}
+              Авторазбор
+            </Button>
             <Button size="sm" variant="secondary" onClick={openReference}>
               <BookOpen className="h-4 w-4" />
               Эталонный список
@@ -255,6 +387,47 @@ export const AdminPage: React.FC<{
           <Stat label="Подтверждено" value={reports.filter((r) => r.status === 'accepted').length} />
           <Stat label="На проверке" value={reports.filter((r) => r.status === 'pending').length} />
         </div>
+
+        {analysis && (
+          <Card className="border-orange-200 bg-orange-50/60">
+            <CardContent className="space-y-3">
+              <h3 className="flex items-center gap-2 font-semibold">
+                <Wand2 className="h-4 w-4" />
+                Авторазбор по ключевым словам
+              </h3>
+              <p className="text-sm text-slate-600">
+                Из репортов «на проверке»: <b>{analysis.counts.high}</b> распознано уверенно,{' '}
+                <b>{analysis.counts.duplicates}</b> повторов у тех же участников,{' '}
+                <b>{analysis.counts.low}</b> требуют взгляда, <b>{analysis.counts.none}</b> не
+                распознаны. Автомат ничего не отклоняет — спорное остаётся вам.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => void acceptConfident()}
+                  disabled={analysis.counts.high === 0}
+                  data-testid="accept-confident"
+                >
+                  Принять уверенные ({analysis.counts.high})
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void markDuplicates()}
+                  disabled={analysis.counts.duplicates === 0}
+                  data-testid="mark-duplicates"
+                >
+                  <Copy className="h-4 w-4" />
+                  Пометить дубликаты ({analysis.counts.duplicates})
+                </Button>
+                <Button size="sm" variant="secondary" onClick={openReference}>
+                  Покрытие: {analysis.foundCodes.size} из {knownBugs.length}
+                </Button>
+              </div>
+              {autoNote && <Alert tone="success">{autoNote}</Alert>}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardContent className="space-y-3">
@@ -356,12 +529,28 @@ export const AdminPage: React.FC<{
               </Badge>
             </button>
           ))}
+          {analysis && (
+            <>
+              <span className="mx-1 h-4 w-px bg-slate-300" />
+              {(['any', 'high', 'low', 'none', 'duplicate'] as MatchFilter[]).map((f) => (
+                <button key={f} onClick={() => setMatchFilter(f)} data-testid={`match-filter-${f}`}>
+                  <Badge className={cn(matchFilter === f && 'border-slate-900 bg-slate-900 text-white')}>
+                    {f === 'any'
+                      ? 'Любой разбор'
+                      : f === 'duplicate'
+                        ? 'повторы'
+                        : CONFIDENCE_LABELS[f]}
+                  </Badge>
+                </button>
+              ))}
+            </>
+          )}
           <span className="text-sm text-slate-500">найдено: {visibleReports.length}</span>
         </div>
 
         <div className="space-y-3">
           {visibleReports.map((r) => (
-            <ReportRow key={r.id} report={r} onVerdict={setVerdict} />
+            <ReportRow key={r.id} report={r} match={matches.get(r.id)} onVerdict={setVerdict} />
           ))}
         </div>
       </main>
@@ -383,17 +572,46 @@ export const AdminPage: React.FC<{
             Всего заложено дефектов: {knownBugs.length}. Список нужен только для валидации — не
             показывайте его участникам до конца раунда.
           </p>
-          {knownBugs.map((b) => (
-            <div key={b.code} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="font-mono">{b.code}</Badge>
-                <Badge className={SEVERITY_STYLES[b.severity]}>{SEVERITY_LABELS[b.severity]}</Badge>
-                <Badge>{AREA_LABELS[b.area]}</Badge>
+          {analysis && (
+            <p className="text-sm text-slate-600">
+              По итогам авторазбора найдено <b>{analysis.foundCodes.size}</b> из{' '}
+              <b>{knownBugs.length}</b>. Ненайденные отмечены серым — это то, что участники
+              пропустили.
+            </p>
+          )}
+          {knownBugs.map((b) => {
+            const finders = analysis?.foundCodes.get(b.code);
+            return (
+              <div
+                key={b.code}
+                className={cn(
+                  'rounded-lg border p-3',
+                  analysis && !finders ? 'border-slate-200 bg-slate-50' : 'border-slate-200',
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="font-mono">{b.code}</Badge>
+                  <Badge className={SEVERITY_STYLES[b.severity]}>
+                    {SEVERITY_LABELS[b.severity]}
+                  </Badge>
+                  <Badge>{AREA_LABELS[b.area]}</Badge>
+                  {analysis &&
+                    (finders ? (
+                      <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
+                        нашли: {finders.size}
+                      </Badge>
+                    ) : (
+                      <Badge>никто не нашёл</Badge>
+                    ))}
+                </div>
+                <p className="mt-1 font-medium">{b.title}</p>
+                <p className="text-sm text-slate-500">{b.hint}</p>
+                {finders && finders.size > 0 && (
+                  <p className="mt-1 text-xs text-slate-500">{[...finders].join(', ')}</p>
+                )}
               </div>
-              <p className="mt-1 font-medium">{b.title}</p>
-              <p className="text-sm text-slate-500">{b.hint}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Modal>
     </div>
@@ -411,8 +629,10 @@ const Stat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
 
 const ReportRow: React.FC<{
   report: BugReport;
+  /** Результат авторазбора, если он запускался. */
+  match?: MatchResult;
   onVerdict: (r: BugReport, patch: Partial<BugReport>) => void;
-}> = ({ report, onVerdict }) => {
+}> = ({ report, match, onVerdict }) => {
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState(report.reviewComment);
 
@@ -435,6 +655,20 @@ const ReportRow: React.FC<{
           {report.status === 'accepted' && (
             <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
               +{report.score}
+            </Badge>
+          )}
+          {match && (
+            <Badge
+              className={cn('gap-1', CONFIDENCE_STYLES[match.confidence])}
+              title={
+                match.matched.length
+                  ? `Сработали слова: ${match.matched.join(', ')}`
+                  : 'Ключевые слова не найдены'
+              }
+            >
+              <Wand2 className="h-3 w-3" />
+              {match.code ? `${match.code} · ` : ''}
+              {match.duplicate ? 'повтор' : CONFIDENCE_LABELS[match.confidence]}
             </Badge>
           )}
         </div>
