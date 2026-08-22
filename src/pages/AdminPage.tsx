@@ -65,7 +65,11 @@ export const AdminPage: React.FC<{
   const [reports, setReports] = useState<BugReport[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
+  // По умолчанию показываем очередь разбора: только неразобранные дефекты всех
+  // участников сразу. После вердикта карточка уходит из списка сама.
+  const [filter, setFilter] = useState<Filter>('pending');
+  /** Последний одиночный вердикт — чтобы можно было вернуть карточку, если ошиблись. */
+  const [lastVerdict, setLastVerdict] = useState<BugReport | null>(null);
   const [selectedLogin, setSelectedLogin] = useState<string>('');
   const [importOpen, setImportOpen] = useState(false);
   const [referenceOpen, setReferenceOpen] = useState(false);
@@ -274,7 +278,7 @@ export const AdminPage: React.FC<{
           report,
           patch: {
             status: 'accepted' as const,
-            score: bug ? SEVERITY_POINTS[bug.severity] : SEVERITY_POINTS[report.severity],
+            score: bug ? SEVERITY_POINTS[bug.severity] : SEVERITY_POINTS.minor,
             reviewComment: `Авторазбор: ${match!.code}`,
           },
         };
@@ -302,6 +306,9 @@ export const AdminPage: React.FC<{
   }
 
   async function setVerdict(report: BugReport, patch: Partial<BugReport>) {
+    // Меняется статус — карточка исчезнет из очереди, поэтому запоминаем прежнее
+    // состояние: вернуть его одним нажатием проще, чем искать в других фильтрах.
+    if (patch.status && patch.status !== report.status) setLastVerdict(report);
     const updated = { ...report, ...patch, updatedAt: new Date().toISOString() };
     setReports((prev) => prev.map((r) => (r.id === report.id ? updated : r)));
     if (!isOnlineMode()) return;
@@ -399,7 +406,7 @@ export const AdminPage: React.FC<{
     const header = [
       'Логин',
       'Заголовок',
-      'Серьёзность',
+      'Код разбора',
       'Раздел',
       'Шаги',
       'Ожидаемый',
@@ -413,7 +420,7 @@ export const AdminPage: React.FC<{
     const rows = reports.map((r) => [
       r.login,
       r.title,
-      SEVERITY_LABELS[r.severity],
+      matches.get(r.id)?.code ?? '',
       AREA_LABELS[r.area],
       r.steps,
       r.expected,
@@ -714,6 +721,16 @@ export const AdminPage: React.FC<{
           </CardContent>
         </Card>
 
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h3 className="font-semibold">
+            {filter === 'pending' ? 'Очередь разбора' : 'Дефекты'}
+          </h3>
+          <span className="text-sm text-slate-500">
+            разобрано {reports.filter((r) => r.status !== 'pending').length} из {reports.length}
+            {selectedLogin ? ` · показан только ${selectedLogin}` : ' · все участники'}
+          </span>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
           {(['all', 'pending', 'accepted', 'rejected', 'duplicate'] as Filter[]).map((f) => (
             <button key={f} onClick={() => setFilter(f)}>
@@ -764,6 +781,40 @@ export const AdminPage: React.FC<{
           )}
           <span className="text-sm text-slate-500">найдено: {visibleReports.length}</span>
         </div>
+
+        {lastVerdict && (
+          <Alert tone="info">
+            <span className="flex flex-wrap items-center gap-2">
+              Разобрано: «{lastVerdict.title}» — карточка убрана из очереди.
+              <button
+                className="font-medium underline"
+                onClick={() => {
+                  void setVerdict(lastVerdict, {
+                    status: 'pending',
+                    score: 0,
+                    reviewComment: '',
+                  });
+                  setLastVerdict(null);
+                }}
+                data-testid="undo-verdict"
+              >
+                Вернуть на проверку
+              </button>
+            </span>
+          </Alert>
+        )}
+
+        {filter === 'pending' && visibleReports.length === 0 && reports.length > 0 && (
+          <Card>
+            <CardContent className="py-10 text-center">
+              <p className="font-medium">Очередь разбора пуста</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Все дефекты разобраны. Чтобы пересмотреть решения, переключите фильтр на
+                «Принят», «Отклонён» или «Все».
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="space-y-3">
           {visibleReports.map((r) => (
@@ -871,6 +922,12 @@ const ReportRow: React.FC<{
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState(report.reviewComment);
 
+  /**
+   * Баллы предлагаются по серьёзности эталонного дефекта. Участник серьёзность не
+   * указывает, поэтому если разбор ничего не нашёл — значение проставляет валидатор.
+   */
+  const suggestedScore = knownBug ? SEVERITY_POINTS[knownBug.severity] : SEVERITY_POINTS.minor;
+
   return (
     <Card>
       <CardContent className="space-y-2">
@@ -882,9 +939,11 @@ const ReportRow: React.FC<{
               {new Date(report.createdAt).toLocaleString('ru-RU')}
             </p>
           </button>
-          <Badge className={SEVERITY_STYLES[report.severity]}>
-            {SEVERITY_LABELS[report.severity]}
-          </Badge>
+          {knownBug && (
+            <Badge className={SEVERITY_STYLES[knownBug.severity]}>
+              {SEVERITY_LABELS[knownBug.severity]}
+            </Badge>
+          )}
           <Badge>{AREA_LABELS[report.area]}</Badge>
           <Badge className={STATUS_STYLES[report.status]}>{STATUS_LABELS[report.status]}</Badge>
           {report.status === 'accepted' && (
@@ -946,12 +1005,12 @@ const ReportRow: React.FC<{
                 onClick={() =>
                   onVerdict(report, {
                     status: 'accepted',
-                    score: report.score || SEVERITY_POINTS[report.severity],
+                    score: report.score || suggestedScore,
                     reviewComment: comment,
                   })
                 }
               >
-                Принять (+{report.score || SEVERITY_POINTS[report.severity]})
+                Принять (+{report.score || suggestedScore})
               </Button>
               <Button
                 size="sm"

@@ -22,8 +22,6 @@ import { encodeSnapshot, fetchRound, isOnlineMode, pushProgress } from '@/lib/sy
 import {
   AREA_LABELS,
   ROUND_STATUS_LABELS,
-  SEVERITY_LABELS,
-  SEVERITY_STYLES,
   STATUS_LABELS,
   STATUS_STYLES,
   type Area,
@@ -36,6 +34,10 @@ import { ShoppingCartApp } from '@/sandbox/ShoppingCart';
 
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
 
+/**
+ * Черновик дефекта. Серьёзность участник не указывает — она берётся из эталонного
+ * списка при разборе, поэтому здесь стоит нейтральное значение-заглушка.
+ */
 const EMPTY_DRAFT = {
   title: '',
   steps: '',
@@ -67,7 +69,6 @@ export const PlayerPage: React.FC<{
   const [listOpen, setListOpen] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
-  const [quickSeverity, setQuickSeverity] = useState<Severity>('major');
   const [quickError, setQuickError] = useState('');
   const [justAdded, setJustAdded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -228,7 +229,7 @@ export const PlayerPage: React.FC<{
       return;
     }
     setQuickError('');
-    addReport({ ...EMPTY_DRAFT, title, severity: quickSeverity });
+    addReport({ ...EMPTY_DRAFT, title });
     setQuickTitle('');
     setJustAdded(true);
     window.setTimeout(() => setJustAdded(false), 1800);
@@ -256,13 +257,7 @@ export const PlayerPage: React.FC<{
 
   latest.current = { participant, reports: roundReports };
 
-  const stats = useMemo(() => {
-    const bySeverity = roundReports.reduce<Record<string, number>>((acc, r) => {
-      acc[r.severity] = (acc[r.severity] ?? 0) + 1;
-      return acc;
-    }, {});
-    return { total: roundReports.length, bySeverity };
-  }, [roundReports]);
+  const stats = useMemo(() => ({ total: roundReports.length }), [roundReports]);
 
   return (
     <div className="min-h-screen">
@@ -372,21 +367,6 @@ export const PlayerPage: React.FC<{
               />
             </div>
 
-            <select
-              className="field w-auto"
-              value={quickSeverity}
-              disabled={!roundOpen}
-              onChange={(e) => setQuickSeverity(e.target.value as Severity)}
-              title="Серьёзность"
-              data-testid="quick-severity"
-            >
-              {(Object.keys(SEVERITY_LABELS) as Severity[]).map((s) => (
-                <option key={s} value={s}>
-                  {SEVERITY_LABELS[s]}
-                </option>
-              ))}
-            </select>
-
             <Button type="submit" size="md" disabled={!roundOpen} data-testid="quick-add">
               <Plus className="h-4 w-4" />
               Добавить
@@ -455,7 +435,6 @@ export const PlayerPage: React.FC<{
       <BugFormModal
         open={formOpen}
         initialTitle={quickTitle}
-        initialSeverity={quickSeverity}
         initial={editing}
         onClose={() => {
           setFormOpen(false);
@@ -511,7 +490,7 @@ const BugListModal: React.FC<{
   open: boolean;
   onClose: () => void;
   reports: BugReport[];
-  stats: { total: number; bySeverity: Record<string, number> };
+  stats: { total: number };
   onCreate: () => void;
   onEdit: (r: BugReport) => void;
   onDelete: (id: string) => void;
@@ -529,15 +508,9 @@ const BugListModal: React.FC<{
           </p>
         </div>
       ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {(Object.keys(SEVERITY_LABELS) as Severity[]).map((s) =>
-            stats.bySeverity[s] ? (
-              <Badge key={s} className={SEVERITY_STYLES[s]}>
-                {SEVERITY_LABELS[s]}: {stats.bySeverity[s]}
-              </Badge>
-            ) : null,
-          )}
-        </div>
+        <p className="text-sm text-slate-500">
+          Заведено находок: {stats.total}. Баллы начислит организатор по итогам проверки.
+        </p>
       )}
 
       <div className="max-h-[55vh] space-y-2 overflow-y-auto">
@@ -558,7 +531,6 @@ const BugListModal: React.FC<{
               </Button>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <Badge className={SEVERITY_STYLES[r.severity]}>{SEVERITY_LABELS[r.severity]}</Badge>
               <Badge>{AREA_LABELS[r.area]}</Badge>
               <Badge className={STATUS_STYLES[r.status]}>{STATUS_LABELS[r.status]}</Badge>
               <Badge className="gap-1">
@@ -588,10 +560,9 @@ const BugFormModal: React.FC<{
   initial: BugReport | null;
   /** Черновик из строки быстрого ввода — подставляется при создании нового дефекта. */
   initialTitle?: string;
-  initialSeverity?: Severity;
   onClose: () => void;
   onSave: (draft: typeof EMPTY_DRAFT) => void;
-}> = ({ open, initial, initialTitle, initialSeverity, onClose, onSave }) => {
+}> = ({ open, initial, initialTitle, onClose, onSave }) => {
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [error, setError] = useState('');
 
@@ -608,9 +579,9 @@ const BugFormModal: React.FC<{
             severity: initial.severity,
             area: initial.area,
           }
-        : { ...EMPTY_DRAFT, title: initialTitle ?? '', severity: initialSeverity ?? 'major' },
+        : { ...EMPTY_DRAFT, title: initialTitle ?? '' },
     );
-  }, [open, initial, initialTitle, initialSeverity]);
+  }, [open, initial, initialTitle]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -639,24 +610,9 @@ const BugFormModal: React.FC<{
             data-testid="bug-title"
           />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div>
           <div>
-            <label className="label">Серьёзность</label>
-            <select
-              className="field"
-              value={draft.severity}
-              onChange={(e) => setDraft({ ...draft, severity: e.target.value as Severity })}
-              data-testid="bug-severity"
-            >
-              {(Object.keys(SEVERITY_LABELS) as Severity[]).map((s) => (
-                <option key={s} value={s}>
-                  {SEVERITY_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Раздел</label>
+            <label className="label">Раздел — необязательно</label>
             <select
               className="field"
               value={draft.area}
