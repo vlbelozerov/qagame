@@ -28,7 +28,7 @@ export const config = {
    * URL веб-приложения Google Apps Script (см. google-apps-script/README.md).
    * Пусто → приложение работает в офлайн-режиме с экспортом/импортом результатов.
    */
-  syncEndpoint: '',
+  syncEndpoint: 'https://script.google.com/macros/s/AKfycbxKs4qV0jqadUAohD-46UskgTI_sz9N7q5POOT3GAU3IsbxNrmdHW5PVuD8qur3LdY/exec',
 
   /** Логин администратора. */
   adminLogin: 'admin',
