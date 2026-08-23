@@ -31,7 +31,7 @@ var REPORT_COLUMNS = [
   'updatedAt',
 ];
 
-var PARTICIPANT_COLUMNS = ['login', 'round', 'startedAt', 'lastSeenAt', 'finishedAt'];
+var PARTICIPANT_COLUMNS = ['login', 'round', 'startedAt', 'lastSeenAt', 'finishedAt', 'peeked'];
 
 var STATE_COLUMNS = ['number', 'status', 'title', 'startedAt', 'endsAt', 'finishedAt'];
 
@@ -339,6 +339,8 @@ function upsertParticipant(participant) {
             sameRound ? values[r][2] || participant.startedAt : participant.startedAt,
             participant.lastSeenAt || new Date().toISOString(),
             sameRound ? participant.finishedAt || values[r][4] || '' : participant.finishedAt || '',
+            // Отметку о подглядывании не снимаем: снявший её клиент не должен её стирать.
+            values[r][5] === true || values[r][5] === 'TRUE' || participant.peeked === true,
           ],
         ]);
       return;
@@ -413,6 +415,7 @@ function handleSnapshot() {
         p.startedAt = asIso(p.startedAt);
         p.lastSeenAt = asIso(p.lastSeenAt);
         p.finishedAt = asIso(p.finishedAt);
+        p.peeked = p.peeked === true || p.peeked === 'TRUE';
         return p;
       },
     ),

@@ -1,6 +1,7 @@
 import type { KnownBug } from './knownBugs';
 import type { MatchResult } from './matcher';
-import type { BugReport } from './types';
+import { mentionsHoneypot } from './honeypot';
+import type { BugReport, Participant } from './types';
 
 /**
  * Итоги раунда для объявления результатов.
@@ -55,6 +56,7 @@ export function buildRoundReport(
   reports: BugReport[],
   matches: Map<string, MatchResult>,
   knownBugs: KnownBug[],
+  participants: Participant[] = [],
 ): RoundReport {
   const inRound = reports.filter((r) => (r.round ?? 0) === round);
   const accepted = inRound.filter((r) => r.status === 'accepted');
@@ -248,6 +250,28 @@ export function buildRoundReport(
           title: 'Эхо',
           winner: dupes[0],
           detail: `${plural(dupes[1], 'раз', 'раза', 'раз')} завёл то, что уже находил сам`,
+        }
+      : null,
+  );
+
+  // --- Любопытные: снимали оверлей до старта или попались на промокод-приманку ---
+  const caught = new Set(
+    participants.filter((p) => p.peeked).map((p) => p.login),
+  );
+  inRound.forEach((r) => {
+    if (mentionsHoneypot(`${r.title} ${r.steps} ${r.expected} ${r.actual}`)) caught.add(r.login);
+  });
+  add(
+    caught.size > 0
+      ? {
+          key: 'peeked',
+          emoji: '🕵️',
+          title: 'Любопытный',
+          winner: [...caught].join(', '),
+          detail:
+            caught.size === 1
+              ? 'заглянул в витрину до старта раунда — оверлей это заметил'
+              : `заглянули в витрину до старта раунда: ${caught.size}`,
         }
       : null,
   );

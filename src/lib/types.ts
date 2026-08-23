@@ -39,6 +39,11 @@ export interface Participant {
   lastSeenAt: string;
   /** Время отправки итогов, ISO. Пусто — участник ещё в игре. */
   finishedAt: string;
+  /**
+   * Признак, что участник взаимодействовал с витриной, пока она была закрыта:
+   * снял оверлей через инструменты разработчика или кликал сквозь него.
+   */
+  peeked?: boolean;
 }
 
 export interface SessionState {

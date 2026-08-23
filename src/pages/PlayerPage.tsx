@@ -58,7 +58,7 @@ export const PlayerPage: React.FC<{
     const saved = storage.getParticipant();
     if (saved && saved.login === login) return saved;
     const now = new Date().toISOString();
-    return { login, round: 0, startedAt: now, lastSeenAt: now, finishedAt: '' };
+    return { login, round: 0, startedAt: now, lastSeenAt: now, finishedAt: '', peeked: false };
   });
   const [reports, setReports] = useState<BugReport[]>(() =>
     storage.getReports().filter((r) => r.login === login),
@@ -157,17 +157,77 @@ export const PlayerPage: React.FC<{
   useEffect(() => {
     if (round.status !== 'running' || round.number === 0) return;
     if (participant.round === round.number) return;
-    setParticipant({
+    setParticipant((prev) => ({
       login,
       round: round.number,
       startedAt: round.startedAt || new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
       finishedAt: '',
-    });
+      // Отметку о подглядывании не сбрасываем: она относится к участнику, а не к раунду.
+      peeked: prev.peeked,
+    }));
     // Репорты прошлых раундов не удаляем: в офлайн-режиме организатор ещё не забрал
     // их кодом результата. Показываем только текущий раунд, храним всё.
     setFinishOpen(false);
   }, [round, participant.round, login]);
+
+  const storeRef = useRef<HTMLDivElement | null>(null);
+  // Актуальное состояние раунда для колбэков наблюдателя: они срабатывают асинхронно
+  // и могут выполниться уже после того, как раунд открылся.
+  const roundOpenRef = useRef(roundOpen);
+  roundOpenRef.current = roundOpen;
+
+  /**
+   * Оверлей — защита на честность: класс с размытием снимается из инструментов
+   * разработчика в один клик, и помешать этому со статики нельзя. Зато можно
+   * зафиксировать сам факт и показать организатору.
+   */
+  const markPeeked = useCallback(() => {
+    if (roundOpenRef.current) return;
+    setParticipant((prev) => (prev.peeked ? prev : { ...prev, peeked: true }));
+  }, []);
+
+  useEffect(() => {
+    if (roundOpen) return;
+    const node = storeRef.current;
+    if (!node) return;
+
+    // Клики по самой заглушке легальны — реагируем только на касания витрины,
+    // которые вообще возможны лишь со снятым pointer-events-none.
+    const onInteract = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-testid="store-overlay"]')) return;
+      markPeeked();
+    };
+    node.addEventListener('pointerdown', onInteract, true);
+
+    const observer = new MutationObserver((records) => {
+      // При старте раунда React сам убирает размытие и заглушку — это не подглядывание.
+      if (roundOpenRef.current) return;
+      for (const record of records) {
+        if (record.type === 'attributes' && record.target === node.firstElementChild) {
+          const cls = (record.target as HTMLElement).className;
+          if (!cls.includes('blur-') || !cls.includes('pointer-events-none')) {
+            markPeeked();
+            return;
+          }
+        }
+        const removedOverlay = [...record.removedNodes].some(
+          (n) => n instanceof HTMLElement && n.dataset.testid === 'store-overlay',
+        );
+        if (removedOverlay) {
+          markPeeked();
+          return;
+        }
+      }
+    });
+    observer.observe(node, { attributes: true, attributeFilter: ['class', 'style'], childList: true });
+
+    return () => {
+      node.removeEventListener('pointerdown', onInteract, true);
+      observer.disconnect();
+    };
+  }, [roundOpen, markPeeked]);
 
   const sync = useCallback(async (silent: boolean) => {
     if (!isOnlineMode()) return;
@@ -459,7 +519,7 @@ export const PlayerPage: React.FC<{
           </div>
         )}
 
-        <div className="relative">
+        <div className="relative" ref={storeRef}>
           {/*
             Пока раунд не идёт, витрина закрыта: иначе тот, кто вошёл раньше, успел бы
             изучить магазин заранее. Компонент не размонтируем — так состояние корзины
@@ -469,7 +529,7 @@ export const PlayerPage: React.FC<{
             className={cn(!roundOpen && 'pointer-events-none select-none blur-[14px]')}
             aria-hidden={!roundOpen}
           >
-            <ShoppingCartApp />
+            <ShoppingCartApp preview={!roundOpen} />
           </div>
 
           {!roundOpen && (

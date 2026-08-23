@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Upload,
+  Eye,
   Play,
   PartyPopper,
   RotateCcw,
@@ -49,6 +50,7 @@ import {
   type MatchConfidence,
   type MatchResult,
 } from '@/lib/matcher';
+import { mentionsHoneypot } from '@/lib/honeypot';
 import { buildRoundReport, reportToText, type RoundReport } from '@/lib/roundReport';
 import { formatDuration } from './PlayerPage';
 
@@ -214,7 +216,7 @@ export const AdminPage: React.FC<{
       setMatches(current);
     }
     const target = roundFilter === 'all' ? round.number || 1 : roundFilter;
-    setReport(buildRoundReport(target, reports, current, bugs));
+    setReport(buildRoundReport(target, reports, current, bugs, participants));
     setReportCopied(false);
   }
 
@@ -693,6 +695,7 @@ export const AdminPage: React.FC<{
                       <th>Старт</th>
                       <th>Длительность</th>
                       <th>Статус</th>
+                      <th>Честность</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -734,6 +737,20 @@ export const AdminPage: React.FC<{
                               </Badge>
                             ) : (
                               <Badge>в игре</Badge>
+                            )}
+                          </td>
+                          <td>
+                            {p?.peeked ? (
+                              <Badge
+                                className="gap-1 border-amber-200 bg-amber-100 text-amber-800"
+                                title="Витрину открывали до старта раунда: снят оверлей или были клики сквозь него"
+                                data-testid={`peeked-${row.login}`}
+                              >
+                                <Eye className="h-3 w-3" />
+                                заглядывал
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-300">—</span>
                             )}
                           </td>
                         </tr>
@@ -855,6 +872,7 @@ export const AdminPage: React.FC<{
               key={r.id}
               report={r}
               match={matches.get(r.id)}
+              honeypot={mentionsHoneypot(`${r.title} ${r.steps} ${r.expected} ${r.actual}`)}
               knownBug={
                 matches.get(r.id)?.code ? bugByCode.get(matches.get(r.id)!.code) : undefined
               }
@@ -1032,8 +1050,10 @@ const ReportRow: React.FC<{
   match?: MatchResult;
   /** Эталонный дефект, на который указал разбор, — его текст нужен для сверки глазами. */
   knownBug?: KnownBug;
+  /** Найденный в тексте маркер-приманка: такое видно только со снятым оверлеем. */
+  honeypot?: string | null;
   onVerdict: (r: BugReport, patch: Partial<BugReport>) => void;
-}> = ({ report, match, knownBug, onVerdict }) => {
+}> = ({ report, match, knownBug, honeypot, onVerdict }) => {
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState(report.reviewComment);
 
@@ -1081,6 +1101,22 @@ const ReportRow: React.FC<{
             </Badge>
           )}
         </div>
+
+        {honeypot && (
+          <div
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm"
+            data-testid="honeypot-hit"
+          >
+            <p className="flex items-center gap-1.5 font-medium text-amber-900">
+              <Eye className="h-4 w-4" />
+              Попался на приманку: «{honeypot}»
+            </p>
+            <p className="text-amber-800">
+              Такого промокода в магазине нет — он показывается только на закрытой витрине.
+              Значит, участник снимал оверлей до старта раунда.
+            </p>
+          </div>
+        )}
 
         {knownBug && match && (
           <div

@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { Modal, cn } from '@/components/ui';
+import { HONEYPOT_CODES } from '@/lib/honeypot';
 import {
   CATEGORIES,
   FREE_SHIPPING_THRESHOLD,
@@ -54,7 +55,10 @@ const PAGE_SIZE = 6;
 
 const money = (value: number) => value.toLocaleString('ru-RU');
 
-export const ShoppingCartApp: React.FC = () => {
+export const ShoppingCartApp: React.FC<{
+  /** Витрина закрыта оверлеем: показываем промокоды-приманки вместо настоящих. */
+  preview?: boolean;
+}> = ({ preview = false }) => {
   const [view, setView] = useState<View>('catalog');
   const [lines, setLines] = useState<CartLine[]>([]);
   const [favorites, setFavorites] = useState<number[]>([]);
@@ -195,6 +199,7 @@ export const ShoppingCartApp: React.FC = () => {
       <div className="bg-slate-50/70 px-4 py-6 sm:px-6">
         {view === 'catalog' && (
           <Catalog
+            preview={preview}
             category={category}
             setCategory={(c) => {
               setCategory(c);
@@ -387,6 +392,7 @@ const NavTab: React.FC<{
 // --- Каталог ---
 
 const Catalog: React.FC<{
+  preview: boolean;
   category: string;
   setCategory: (v: string) => void;
   sort: Sort;
@@ -400,6 +406,7 @@ const Catalog: React.FC<{
   onToggleFavorite: (id: number) => void;
   onQuickView: (p: Product) => void;
 }> = ({
+  preview,
   category,
   setCategory,
   sort,
@@ -420,11 +427,15 @@ const Catalog: React.FC<{
         Скидки до 25% на экипировку и домашние тренажёры
       </h2>
       <div className="mt-4 flex flex-wrap gap-2 text-sm">
+        {/*
+          Пока витрина закрыта, показываем коды-приманки: настоящих их не существует,
+          и увидеть их можно только сняв оверлей через инструменты разработчика.
+        */}
         <span className="rounded-lg bg-white/10 px-3 py-1.5 backdrop-blur">
-          Промокод <b className="font-mono">SALE10</b> — минус 10%
+          Промокод <b className="font-mono">{preview ? HONEYPOT_CODES[0] : 'SALE10'}</b> — минус 10%
         </span>
         <span className="rounded-lg bg-white/10 px-3 py-1.5 backdrop-blur">
-          Промокод <b className="font-mono">QA2026</b> — минус 15%
+          Промокод <b className="font-mono">{preview ? HONEYPOT_CODES[1] : 'QA2026'}</b> — минус 15%
         </span>
       </div>
     </section>
