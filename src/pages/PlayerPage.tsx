@@ -12,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Hourglass,
   Lock,
   Trash2,
 } from 'lucide-react';
@@ -98,9 +99,39 @@ export const PlayerPage: React.FC<{
       }
     };
     poll();
-    const t = setInterval(poll, isOnlineMode() ? 10_000 : 2_000);
-    return () => clearInterval(t);
-  }, []);
+    if (!isOnlineMode()) {
+      const offline = setInterval(poll, 2_000);
+      return () => clearInterval(offline);
+    }
+    // Пока ждём старта, спрашиваем сервер чаще: каждая лишняя секунда до открытия
+    // витрины — это фора для тех, кому ответ пришёл раньше. Во время раунда частить
+    // незачем, а в скрытой вкладке не опрашиваем вовсе, чтобы не жечь квоту.
+    let timer = 0;
+    const schedule = () => {
+      const hidden = document.visibilityState === 'hidden';
+      const delay = hidden
+        ? config.roundPollHiddenMs
+        : round.status === 'running'
+          ? config.roundPollRunningMs
+          : config.roundPollWaitingMs;
+      timer = window.setTimeout(() => {
+        poll();
+        schedule();
+      }, delay);
+    };
+    schedule();
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      window.clearTimeout(timer);
+      poll();
+      schedule();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [round.status]);
 
   // Отсчёт идёт от старта раунда, а не от входа участника: у всех одинаковое время.
   const roundStartMs = round.startedAt ? new Date(round.startedAt).getTime() : Date.now();
@@ -115,7 +146,7 @@ export const PlayerPage: React.FC<{
   const lockReason = participant.finishedAt
     ? 'Вы сдали результат — приём ваших дефектов закрыт.'
     : round.status === 'idle'
-      ? 'Раунд ещё не начался. Дождитесь организатора — магазин пока можно изучать.'
+      ? 'Раунд ещё не начался. Витрина откроется у всех одновременно со стартом.'
       : round.status === 'finished'
         ? 'Раунд завершён организатором. Приём дефектов закрыт.'
         : timeIsUp
@@ -428,7 +459,75 @@ export const PlayerPage: React.FC<{
           </div>
         )}
 
-        <ShoppingCartApp />
+        <div className="relative">
+          {/*
+            Пока раунд не идёт, витрина закрыта: иначе тот, кто вошёл раньше, успел бы
+            изучить магазин заранее. Компонент не размонтируем — так состояние корзины
+            не мигает при открытии, а сам старт для всех наступает одновременно.
+          */}
+          <div
+            className={cn(!roundOpen && 'pointer-events-none select-none blur-[14px]')}
+            aria-hidden={!roundOpen}
+          >
+            <ShoppingCartApp />
+          </div>
+
+          {!roundOpen && (
+            <div
+              className="absolute inset-0 z-20 flex items-start justify-center rounded-2xl bg-slate-900/60 p-6 backdrop-blur-md"
+              data-testid="store-overlay"
+            >
+              <div className="mt-16 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xl">
+                <span
+                  className={cn(
+                    'mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl',
+                    round.status === 'idle'
+                      ? 'bg-orange-100 text-orange-600'
+                      : 'bg-slate-100 text-slate-500',
+                  )}
+                >
+                  {round.status === 'idle' ? (
+                    <Hourglass className="h-7 w-7" />
+                  ) : (
+                    <Lock className="h-7 w-7" />
+                  )}
+                </span>
+
+                <h2 className="text-lg font-semibold">
+                  {round.status === 'idle'
+                    ? 'Магазин откроется со стартом раунда'
+                    : participant.finishedAt
+                      ? 'Вы сдали результат'
+                      : 'Раунд завершён'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {round.status === 'idle'
+                    ? 'Вы в игре — ждём остальных. Витрина закрыта, чтобы никто не изучил её заранее: у всех будет одинаковое время.'
+                    : lockReason}
+                </p>
+
+                {round.status === 'idle' && (
+                  <p className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-500">
+                    <Spinner className="h-4 w-4" />
+                    Откроется автоматически, обновлять страницу не нужно
+                  </p>
+                )}
+
+                {roundReports.length > 0 && (
+                  <p className="mt-3 text-sm text-slate-600">
+                    Ваших находок в раунде: <b>{roundReports.length}</b> — их видно по кнопке
+                    «Мои дефекты».
+                  </p>
+                )}
+
+                <p className="mt-4 text-xs text-slate-400">
+                  Вы вошли как {login}
+                  {round.number > 0 && ` · раунд ${round.number}`}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </main>
 
       <BugListModal
