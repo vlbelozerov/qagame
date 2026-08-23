@@ -12,6 +12,7 @@
 var SHEET_REPORTS = 'reports';
 var SHEET_PARTICIPANTS = 'participants';
 var SHEET_STATE = 'state';
+var SHEET_RESULTS = 'results';
 
 var REPORT_COLUMNS = [
   'id',
@@ -35,6 +36,13 @@ var PARTICIPANT_COLUMNS = ['login', 'round', 'startedAt', 'lastSeenAt', 'finishe
 
 var STATE_COLUMNS = ['number', 'status', 'title', 'startedAt', 'endsAt', 'finishedAt'];
 
+/**
+ * Опубликованные итоги раунда. Хранятся кусками: в ячейку Sheets влезает 50 000
+ * символов, а таблица со ста участниками и номинациями может оказаться длиннее.
+ */
+var RESULTS_COLUMNS = ['round', 'publishedAt', 'part', 'payload'];
+var RESULTS_CHUNK = 40000;
+
 /** Запас на расхождение часов клиента и сервера, мс. */
 var CLOCK_GRACE_MS = 60000;
 
@@ -45,6 +53,7 @@ function doPost(e) {
 
     if (action === 'submit') return json({ ok: true, result: handleSubmit(request) });
     if (action === 'round') return json({ ok: true, result: readState() });
+    if (action === 'results') return json({ ok: true, result: readResults(request.round) });
 
     // Всё остальное — только для админа.
     requireAdmin(request);
@@ -55,6 +64,7 @@ function doPost(e) {
     if (action === 'adminStartRound') return json({ ok: true, result: startRound(request) });
     if (action === 'adminFinishRound') return json({ ok: true, result: finishRound() });
     if (action === 'adminReset') return json({ ok: true, result: resetCompetition() });
+    if (action === 'adminPublishResults') return json({ ok: true, result: writeResults(request) });
 
     return json({ ok: false, error: 'Неизвестное действие: ' + action });
   } catch (err) {
@@ -215,6 +225,7 @@ function resetCompetition() {
     [
       [SHEET_REPORTS, REPORT_COLUMNS],
       [SHEET_PARTICIPANTS, PARTICIPANT_COLUMNS],
+      [SHEET_RESULTS, RESULTS_COLUMNS],
     ].forEach(function (pair) {
       var sheet = getSheet(pair[0], pair[1]);
       if (sheet.getLastRow() > 1) {
@@ -231,6 +242,81 @@ function resetCompetition() {
     });
   } finally {
     lock.releaseLock();
+  }
+}
+
+/**
+ * Сохранение итогов раунда. Публикация повторяется столько раз, сколько нужно
+ * организатору, — старые куски того же раунда стираются перед записью новых.
+ */
+function writeResults(request) {
+  var round = Number(request.round) || 0;
+  if (!round) throw new Error('Не указан раунд для публикации итогов');
+  var payload = String(request.payload || '');
+  if (!payload) throw new Error('Пустые итоги раунда');
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = getSheet(SHEET_RESULTS, RESULTS_COLUMNS);
+    dropResultRows(sheet, round);
+
+    var publishedAt = new Date().toISOString();
+    var rows = [];
+    for (var offset = 0, part = 0; offset < payload.length; offset += RESULTS_CHUNK, part++) {
+      rows.push([round, publishedAt, part, payload.substr(offset, RESULTS_CHUNK)]);
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, RESULTS_COLUMNS.length).setValues(rows);
+    return { ok: true, publishedAt: publishedAt, parts: rows.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function dropResultRows(sheet, round) {
+  var values = sheet.getDataRange().getValues();
+  // Снизу вверх: удаление строки сдвигает те, что ниже.
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (Number(values[r][0]) === round) sheet.deleteRow(r + 1);
+  }
+}
+
+/**
+ * Итоги раунда для участника. Раунд 0 или не указан — отдаём последние
+ * опубликованные: участник спрашивает итоги, ещё не зная их номера.
+ */
+function readResults(requestedRound) {
+  var sheet = getSheet(SHEET_RESULTS, RESULTS_COLUMNS);
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return null;
+
+  var round = Number(requestedRound) || 0;
+  if (!round) {
+    for (var i = 1; i < values.length; i++) {
+      round = Math.max(round, Number(values[i][0]) || 0);
+    }
+  }
+
+  var parts = [];
+  for (var r = 1; r < values.length; r++) {
+    if (Number(values[r][0]) !== round) continue;
+    parts.push({ part: Number(values[r][2]) || 0, text: String(values[r][3] || '') });
+  }
+  if (parts.length === 0) return null;
+  parts.sort(function (a, b) {
+    return a.part - b.part;
+  });
+
+  var json = parts
+    .map(function (p) {
+      return p.text;
+    })
+    .join('');
+  try {
+    return JSON.parse(json);
+  } catch (err) {
+    // Битые итоги лучше показать как «ещё не опубликованы», чем уронить страницу участника.
+    return null;
   }
 }
 
@@ -284,7 +370,13 @@ function handleSubmit(request) {
   }
 }
 
-/** Текущие вердикты по репортам участника — их клиент показывает в «Моих дефектах». */
+/**
+ * Все строки участника целиком — их клиент показывает в «Моих дефектах».
+ *
+ * Отдаём не только вердикт, но и текст находки: у участника, открывшего итоги в
+ * другом браузере или после очистки данных, локального списка нет вовсе, а свой
+ * разбор он должен увидеть в любом случае.
+ */
 function verdictsFor(login) {
   if (!login) return [];
   var sheet = getSheet(SHEET_REPORTS, REPORT_COLUMNS);
@@ -292,12 +384,19 @@ function verdictsFor(login) {
   var out = [];
   for (var r = 1; r < values.length; r++) {
     if (String(values[r][2]) !== String(login)) continue;
-    out.push({
-      id: String(values[r][0]),
-      status: String(values[r][11] || 'pending'),
-      score: Number(values[r][12]) || 0,
-      reviewComment: String(values[r][13] || ''),
+    var row = {};
+    REPORT_COLUMNS.forEach(function (name, i) {
+      row[name] = values[r][i];
     });
+    row.id = String(row.id);
+    row.round = Number(row.round) || 0;
+    row.elapsedSec = Number(row.elapsedSec) || 0;
+    row.status = String(row.status || 'pending');
+    row.score = Number(row.score) || 0;
+    row.reviewComment = String(row.reviewComment || '');
+    row.createdAt = asIso(row.createdAt);
+    row.updatedAt = asIso(row.updatedAt);
+    out.push(row);
   }
   return out;
 }

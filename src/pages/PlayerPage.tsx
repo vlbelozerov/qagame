@@ -18,8 +18,9 @@ import {
 } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Modal, Spinner, cn } from '@/components/ui';
+import { formatDuration } from '@/lib/format';
 import { newId, storage } from '@/lib/storage';
-import { encodeSnapshot, fetchRound, isOnlineMode, pushProgress } from '@/lib/sync';
+import { encodeSnapshot, fetchResults, fetchRound, isOnlineMode, pushProgress } from '@/lib/sync';
 import {
   AREA_LABELS,
   ROUND_STATUS_LABELS,
@@ -28,9 +29,11 @@ import {
   type Area,
   type BugReport,
   type Participant,
+  type PublishedResults,
   type RoundState,
   type Severity,
 } from '@/lib/types';
+import { RoundResults } from '@/components/RoundResults';
 import { ShoppingCartApp } from '@/sandbox/ShoppingCart';
 
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
@@ -74,6 +77,8 @@ export const PlayerPage: React.FC<{
   const [justAdded, setJustAdded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [round, setRound] = useState<RoundState>(() => storage.getRound());
+  /** Итоги раунда, опубликованные организатором. null — их ещё нет. */
+  const [results, setResults] = useState<PublishedResults | null>(() => storage.getResults());
 
   // Держим свежие данные в ref, чтобы интервал синхронизации не пересоздавался на каждый ввод.
   const latest = useRef({ participant, reports: [] as BugReport[] });
@@ -88,14 +93,40 @@ export const PlayerPage: React.FC<{
 
   // Состояние раунда: в онлайне спрашиваем сервер, в офлайне читаем localStorage,
   // куда его пишет админка, открытая в этом же браузере.
+  // Актуальные итоги для колбэков опроса: перезапускать интервал из-за них незачем.
+  const resultsRef = useRef(results);
+  resultsRef.current = results;
+
+  const applyResults = useCallback((next: PublishedResults) => {
+    storage.setResults(next);
+    setResults(next);
+  }, []);
+
   useEffect(() => {
     const poll = () => {
       if (isOnlineMode()) {
         fetchRound()
-          .then(setRound)
+          .then((next) => {
+            setRound(next);
+            // Итоги спрашиваем только после закрытия раунда и только пока их нет:
+            // опубликованные, они уже не меняются, а лишний запрос — это квота.
+            if (
+              next.status === 'finished' &&
+              next.number > 0 &&
+              resultsRef.current?.round !== next.number
+            ) {
+              fetchResults(next.number)
+                .then((published) => {
+                  if (published) applyResults(published);
+                })
+                .catch(() => undefined);
+            }
+          })
           .catch(() => undefined);
       } else {
         setRound(storage.getRound());
+        const saved = storage.getResults();
+        if (saved && saved.round !== resultsRef.current?.round) setResults(saved);
       }
     };
     poll();
@@ -109,11 +140,15 @@ export const PlayerPage: React.FC<{
     let timer = 0;
     const schedule = () => {
       const hidden = document.visibilityState === 'hidden';
+      // Чаще всего опрашиваем до старта: каждая лишняя секунда там — фора соседу.
+      // После закрытия раунда ждём только публикации итогов — это не гонка.
       const delay = hidden
         ? config.roundPollHiddenMs
-        : round.status === 'running'
-          ? config.roundPollRunningMs
-          : config.roundPollWaitingMs;
+        : round.status === 'idle'
+          ? config.roundPollWaitingMs
+          : round.status === 'running'
+            ? config.roundPollRunningMs
+            : config.roundPollHiddenMs;
       timer = window.setTimeout(() => {
         poll();
         schedule();
@@ -131,7 +166,7 @@ export const PlayerPage: React.FC<{
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [round.status]);
+  }, [round.status, applyResults]);
 
   // Отсчёт идёт от старта раунда, а не от входа участника: у всех одинаковое время.
   const roundStartMs = round.startedAt ? new Date(round.startedAt).getTime() : Date.now();
@@ -243,17 +278,23 @@ export const PlayerPage: React.FC<{
       if (deleted.length > 0) storage.clearDeletedIds();
       // Сервер возвращает актуальный раунд — узнаём о старте и закрытии без лишнего запроса.
       if (result.round) setRound(result.round);
-      // И вердикты организатора: без них у участника всё висело бы «на проверке».
+      // И собственные строки участника со стороны сервера: вердикты организатора
+      // (иначе всё висело бы «на проверке») плюс находки, которых нет локально, —
+      // так список не пустеет в другом браузере и после очистки данных.
       if (result.verdicts?.length) {
-        const byId = new Map(result.verdicts.map((v) => [v.id, v]));
-        setReports((prev) =>
-          prev.map((r) => {
+        const fromServer = result.verdicts.filter((v) => v && v.id && v.login === login);
+        const byId = new Map(fromServer.map((v) => [v.id, v]));
+        setReports((prev) => {
+          const known = new Set(prev.map((r) => r.id));
+          const patched = prev.map((r) => {
             const v = byId.get(r.id);
-            return v && v.status !== r.status
+            return v && (v.status !== r.status || v.score !== r.score)
               ? { ...r, status: v.status, score: v.score, reviewComment: v.reviewComment }
               : r;
-          }),
-        );
+          });
+          const missing = fromServer.filter((v) => !known.has(v.id));
+          return missing.length > 0 ? [...missing, ...patched] : patched;
+        });
       }
       setSyncState('ok');
       setSyncError(
@@ -365,6 +406,12 @@ export const PlayerPage: React.FC<{
   latest.current = { participant, reports: roundReports };
 
   const stats = useMemo(() => ({ total: roundReports.length }), [roundReports]);
+
+  /**
+   * Итоги показываем вместо витрины: раунд уже закрыт, магазин под размытием никому
+   * не нужен, а личный результат — то, ради чего участник возвращается на страницу.
+   */
+  const showResults = results !== null && results.round === round.number && round.number > 0;
 
   return (
     <div className="min-h-screen">
@@ -503,7 +550,7 @@ export const PlayerPage: React.FC<{
       </header>
 
       <main className="mx-auto max-w-[1600px] px-4 py-6">
-        {!roundOpen && (
+        {!roundOpen && !showResults && (
           <div className="mb-4">
             <Alert tone={round.status === 'idle' ? 'info' : 'error'}>
               <span className="font-medium">{ROUND_STATUS_LABELS[round.status]}.</span> {lockReason}
@@ -519,6 +566,9 @@ export const PlayerPage: React.FC<{
           </div>
         )}
 
+        {showResults ? (
+          <RoundResults results={results} login={login} reports={roundReports} />
+        ) : (
         <div className="relative" ref={storeRef}>
           {/*
             Пока раунд не идёт, витрина закрыта: иначе тот, кто вошёл раньше, успел бы
@@ -588,6 +638,7 @@ export const PlayerPage: React.FC<{
             </div>
           )}
         </div>
+        )}
       </main>
 
       <BugListModal
@@ -952,12 +1003,3 @@ const FinishModal: React.FC<{
     </Modal>
   );
 };
-
-export function formatDuration(totalSec: number): string {
-  const sec = Math.max(0, Math.floor(totalSec));
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-}

@@ -3,6 +3,7 @@ import type {
   AdminSnapshot,
   BugReport,
   Participant,
+  PublishedResults,
   RoundState,
   ValidationStatus,
 } from './types';
@@ -49,8 +50,12 @@ export interface SubmitResult {
   accepted: string[];
   rejected: string[];
   round: RoundState;
-  /** Вердикты организатора по репортам участника — без них статус вечно «на проверке». */
-  verdicts: { id: string; status: ValidationStatus; score: number; reviewComment: string }[];
+  /**
+   * Строки участника со стороны сервера: и вердикты организатора (без них статус
+   * вечно «на проверке»), и сами находки — чтобы список восстанавливался в чужом
+   * браузере или после очистки данных.
+   */
+  verdicts: BugReport[];
 }
 
 export function pushProgress(
@@ -102,6 +107,24 @@ export function pushVerdict(
   verdict: { id: string; status: ValidationStatus; score: number; reviewComment: string },
 ) {
   return call<{ ok: true }>('adminVerdict', { login, password, ...verdict });
+}
+
+/**
+ * Публикация итогов раунда участникам. Считает их админка — только у неё есть
+ * эталонный список, — а сервер лишь хранит готовый результат.
+ */
+export function publishResults(login: string, password: string, results: PublishedResults) {
+  return call<{ ok: true }>('adminPublishResults', {
+    login,
+    password,
+    round: results.round,
+    payload: JSON.stringify(results),
+  });
+}
+
+/** Итоги раунда для участника. null — организатор ещё не публиковал их. */
+export function fetchResults(round: number) {
+  return call<PublishedResults | null>('results', { round });
 }
 
 // --- Офлайн-режим: обмен результатами через текстовый код ---

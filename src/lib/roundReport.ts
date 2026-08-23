@@ -1,7 +1,15 @@
 import type { KnownBug } from './knownBugs';
 import type { MatchResult } from './matcher';
+import { plural } from './format';
 import { mentionsHoneypot } from './honeypot';
-import type { BugReport, Participant } from './types';
+import type {
+  BugReport,
+  Nomination,
+  Participant,
+  PublishedResults,
+  RoundState,
+  StandingRow,
+} from './types';
 
 /**
  * Итоги раунда для объявления результатов.
@@ -12,16 +20,7 @@ import type { BugReport, Participant } from './types';
  * награждении выглядит нелепо.
  */
 
-export interface Nomination {
-  /** Ключ для React и тестов. */
-  key: string;
-  emoji: string;
-  title: string;
-  /** Кому досталась номинация: логин или название дефекта. */
-  winner: string;
-  /** Пояснение: за что именно. */
-  detail: string;
-}
+export type { Nomination } from './types';
 
 export interface RoundReport {
   round: number;
@@ -34,15 +33,9 @@ export interface RoundReport {
   nominations: Nomination[];
   /** Дефекты, которые не нашёл никто, — их зачитывают в конце. */
   missed: KnownBug[];
+  /** Турнирная таблица раунда: её же видит участник в личных итогах. */
+  standings: StandingRow[];
 }
-
-const plural = (n: number, one: string, few: string, many: string) => {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} ${one}`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} ${few}`;
-  return `${n} ${many}`;
-};
 
 function formatTime(totalSec: number): string {
   const sec = Math.max(0, Math.floor(totalSec));
@@ -89,6 +82,7 @@ export function buildRoundReport(
           title: 'Самая быстрая находка',
           winner: fastest.login,
           detail: `«${fastest.title}» — на ${formatTime(fastest.elapsedSec)} от старта раунда`,
+          winnerLogins: [fastest.login],
         }
       : null,
   );
@@ -104,6 +98,8 @@ export function buildRoundReport(
           title: 'Самый заметный дефект',
           winner: bugByCode.get(popular[0])?.title ?? popular[0],
           detail: `его нашли ${plural(popular[1].size, 'участник', 'участника', 'участников')} из ${logins.length}`,
+          // Номинация досталась дефекту, а не человеку: личных победителей здесь нет.
+          winnerLogins: [],
         }
       : null,
   );
@@ -118,6 +114,7 @@ export function buildRoundReport(
           title: 'Самая редкая находка',
           winner: bugByCode.get(rarest[0])?.title ?? rarest[0],
           detail: `единственный, кто заметил, — ${[...rarest[1]][0]}`,
+          winnerLogins: [...rarest[1]],
         }
       : null,
   );
@@ -138,6 +135,7 @@ export function buildRoundReport(
           title: 'Пулемётчик',
           winner: mostAccepted[0],
           detail: `${plural(mostAccepted[1], 'подтверждённая находка', 'подтверждённые находки', 'подтверждённых находок')} за раунд`,
+          winnerLogins: [mostAccepted[0]],
         }
       : null,
   );
@@ -160,6 +158,7 @@ export function buildRoundReport(
           title: 'Снайпер',
           winner: accuracy[0].login,
           detail: `${Math.round(accuracy[0].ratio * 100)}% попаданий: ${accuracy[0].good} из ${accuracy[0].total} заявок засчитано`,
+          winnerLogins: [accuracy[0].login],
         }
       : null,
   );
@@ -180,6 +179,7 @@ export function buildRoundReport(
           title: 'Первопроходец',
           winner: explorer[0],
           detail: `нашёл ${plural(explorer[1], 'дефект', 'дефекта', 'дефектов')}, которые не заметил больше никто`,
+          winnerLogins: [explorer[0]],
         }
       : null,
   );
@@ -194,6 +194,7 @@ export function buildRoundReport(
           title: 'Джекпот',
           winner: jackpot.login,
           detail: `«${jackpot.title}» принесла ${plural(jackpot.score, 'балл', 'балла', 'баллов')} за один раз`,
+          winnerLogins: [jackpot.login],
         }
       : null,
   );
@@ -208,6 +209,7 @@ export function buildRoundReport(
           title: 'На последнем дыхании',
           winner: lastOne.login,
           detail: `сдал «${lastOne.title}» на ${formatTime(lastOne.elapsedSec)} — позже всех`,
+          winnerLogins: [lastOne.login],
         }
       : null,
   );
@@ -222,6 +224,7 @@ export function buildRoundReport(
           title: 'Летописец',
           winner: wordy.login,
           detail: `заголовок на ${plural(wordy.title.length, 'символ', 'символа', 'символов')} — остальные обошлись короче`,
+          winnerLogins: [wordy.login],
         }
       : null,
   );
@@ -236,6 +239,7 @@ export function buildRoundReport(
           title: 'Телеграфный стиль',
           winner: terse.login,
           detail: `уложился в ${plural(terse.title.length, 'символ', 'символа', 'символов')}: «${terse.title}»`,
+          winnerLogins: [terse.login],
         }
       : null,
   );
@@ -250,6 +254,7 @@ export function buildRoundReport(
           title: 'Эхо',
           winner: dupes[0],
           detail: `${plural(dupes[1], 'раз', 'раза', 'раз')} завёл то, что уже находил сам`,
+          winnerLogins: [dupes[0]],
         }
       : null,
   );
@@ -272,11 +277,57 @@ export function buildRoundReport(
             caught.size === 1
               ? 'заглянул в витрину до старта раунда — оверлей это заметил'
               : `заглянули в витрину до старта раунда: ${caught.size}`,
+          winnerLogins: [...caught],
         }
       : null,
   );
 
   const missed = knownBugs.filter((b) => !findersByCode.has(b.code));
+
+  // --- Турнирная таблица ---
+  // В неё попадают все, кто заводил дефекты, и все зарегистрированные в раунде
+  // участники: вошедший и ничего не нашедший тоже должен увидеть себя в списке.
+  const standingLogins = [
+    ...new Set([...logins, ...participants.filter((p) => p.round === round).map((p) => p.login)]),
+  ];
+  const countBy = (login: string, status: BugReport['status']) =>
+    inRound.filter((r) => r.login === login && r.status === status).length;
+
+  const standings: StandingRow[] = standingLogins
+    .map((login) => {
+      const own = inRound.filter((r) => r.login === login);
+      const good = own.filter((r) => r.status === 'accepted');
+      return {
+        place: 0,
+        login,
+        score: good.reduce((sum, r) => sum + (r.score || 0), 0),
+        accepted: good.length,
+        rejected: countBy(login, 'rejected'),
+        duplicate: countBy(login, 'duplicate'),
+        total: own.length,
+        unique: uniqueByLogin.get(login) ?? 0,
+        firstAcceptedSec: good.length
+          ? Math.min(...good.map((r) => r.elapsedSec))
+          : -1,
+      };
+    })
+    // При равных баллах выше тот, кто набрал их меньшим числом заявок, а затем — быстрее.
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.accepted - a.accepted ||
+        a.total - b.total ||
+        a.login.localeCompare(b.login),
+    );
+
+  // Одинаковый результат — одинаковое место: делить призёров случайным порядком нечестно.
+  standings.forEach((row, i) => {
+    const previous = standings[i - 1];
+    row.place =
+      previous && previous.score === row.score && previous.accepted === row.accepted
+        ? previous.place
+        : i + 1;
+  });
 
   return {
     round,
@@ -287,6 +338,30 @@ export function buildRoundReport(
     knownBugs: knownBugs.length,
     nominations,
     missed,
+    standings,
+  };
+}
+
+/**
+ * Версия итогов для участников.
+ *
+ * Из отчёта убирается всё, что участникам знать не положено: подсказки эталонного
+ * списка и номинация «Любопытный» — публично называть подглядывавших организатор
+ * не обязан, в админке она остаётся.
+ */
+export function toPublishedResults(report: RoundReport, round: RoundState): PublishedResults {
+  return {
+    round: report.round,
+    title: round.number === report.round ? round.title : '',
+    publishedAt: new Date().toISOString(),
+    participants: report.participants,
+    accepted: report.accepted,
+    totalReports: report.totalReports,
+    foundBugs: report.foundBugs,
+    knownBugs: report.knownBugs,
+    standings: report.standings,
+    nominations: report.nominations.filter((n) => n.key !== 'peeked'),
+    missed: report.missed.map((b) => ({ code: b.code, title: b.title })),
   };
 }
 

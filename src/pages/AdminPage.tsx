@@ -12,6 +12,7 @@ import {
   Play,
   PartyPopper,
   RotateCcw,
+  Send,
   Square,
   Users,
   Wand2,
@@ -24,6 +25,7 @@ import {
   fetchSnapshot,
   finishRound as finishRoundRequest,
   isOnlineMode,
+  publishResults,
   pushVerdict,
   resetCompetition,
   startRound as startRoundRequest,
@@ -51,8 +53,13 @@ import {
   type MatchResult,
 } from '@/lib/matcher';
 import { mentionsHoneypot } from '@/lib/honeypot';
-import { buildRoundReport, reportToText, type RoundReport } from '@/lib/roundReport';
-import { formatDuration } from './PlayerPage';
+import {
+  buildRoundReport,
+  reportToText,
+  toPublishedResults,
+  type RoundReport,
+} from '@/lib/roundReport';
+import { formatDuration } from '@/lib/format';
 
 type Filter = 'all' | ValidationStatus;
 type MatchFilter = 'any' | MatchConfidence | 'duplicate';
@@ -92,6 +99,9 @@ export const AdminPage: React.FC<{
   const [roundFilter, setRoundFilter] = useState<number | 'all'>('all');
   const [report, setReport] = useState<RoundReport | null>(null);
   const [reportCopied, setReportCopied] = useState(false);
+  /** Публикация итогов участникам: пусто — ещё не публиковали в этот заход. */
+  const [publishState, setPublishState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
+  const [publishError, setPublishError] = useState('');
 
   const load = useCallback(async () => {
     if (!isOnlineMode()) {
@@ -218,6 +228,27 @@ export const AdminPage: React.FC<{
     const target = roundFilter === 'all' ? round.number || 1 : roundFilter;
     setReport(buildRoundReport(target, reports, current, bugs, participants));
     setReportCopied(false);
+    setPublishState('idle');
+    setPublishError('');
+  }
+
+  /**
+   * Публикация итогов участникам. Считаем здесь, потому что эталонный список есть
+   * только в админке; сервер хранит готовый результат и раздаёт его одним запросом.
+   */
+  async function publish() {
+    if (!report) return;
+    setPublishState('busy');
+    setPublishError('');
+    try {
+      const payload = toPublishedResults(report, round);
+      if (isOnlineMode()) await publishResults(adminName, adminSecret, payload);
+      else storage.setResults(payload);
+      setPublishState('done');
+    } catch (err) {
+      setPublishState('error');
+      setPublishError(err instanceof Error ? err.message : 'Не удалось опубликовать итоги');
+    }
   }
 
   function confirmReset() {
@@ -909,6 +940,39 @@ export const AdminPage: React.FC<{
               </Alert>
             )}
 
+            {report.standings.length > 0 && (
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Место</th>
+                      <th className="px-3 py-2">Участник</th>
+                      <th className="px-3 py-2">Баллы</th>
+                      <th className="px-3 py-2">Засчитано</th>
+                      <th className="px-3 py-2">Заявок</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.standings.slice(0, 10).map((row) => (
+                      <tr key={row.login} className="border-t border-slate-100">
+                        <td className="px-3 py-1.5 font-semibold">{row.place}</td>
+                        <td className="px-3 py-1.5">{row.login}</td>
+                        <td className="px-3 py-1.5 font-semibold">{row.score}</td>
+                        <td className="px-3 py-1.5">{row.accepted}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{row.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {report.standings.length > 10 && (
+                  <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+                    Показаны первые 10 из {report.standings.length}. Участники видят полную
+                    таблицу и своё место в ней.
+                  </p>
+                )}
+              </div>
+            )}
+
             {report.nominations.length === 0 ? (
               <Alert tone="info">
                 Пока нет ни одной подтверждённой находки — номинации появятся после разбора.
@@ -947,9 +1011,28 @@ export const AdminPage: React.FC<{
               </div>
             )}
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+            {publishState === 'done' && (
+              <Alert tone="success">
+                Итоги опубликованы: участники видят своё место, баллы, разбор своих находок
+                и личные номинации. Повторная публикация перезапишет их — нажмите ещё раз,
+                если после этого меняли вердикты.
+              </Alert>
+            )}
+            {publishState === 'error' && <Alert tone="error">{publishError}</Alert>}
+
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
               <Button variant="secondary" onClick={() => setReport(null)}>
                 Закрыть
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void publish()}
+                disabled={publishState === 'busy'}
+                data-testid="publish-results"
+                title="Участники увидят личные итоги на своей странице"
+              >
+                {publishState === 'busy' ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                {publishState === 'done' ? 'Опубликовать заново' : 'Опубликовать участникам'}
               </Button>
               <Button
                 onClick={async () => {

@@ -97,6 +97,60 @@ export interface AdminSnapshot {
   round: RoundState;
 }
 
+export interface Nomination {
+  /** Ключ для React и тестов. */
+  key: string;
+  emoji: string;
+  title: string;
+  /** Кому досталась номинация: логин или название дефекта. */
+  winner: string;
+  /** Пояснение: за что именно. */
+  detail: string;
+  /**
+   * Логины победителей отдельным полем: по нему участник узнаёт свои номинации.
+   * Сравнивать с winner нельзя — там может стоять название дефекта.
+   */
+  winnerLogins: string[];
+}
+
+/** Строка турнирной таблицы по итогам раунда. */
+export interface StandingRow {
+  place: number;
+  login: string;
+  score: number;
+  accepted: number;
+  rejected: number;
+  duplicate: number;
+  total: number;
+  /** Находки, которые не повторил больше никто. */
+  unique: number;
+  /** Секунды от старта раунда до первой засчитанной находки; -1 — засчитанных нет. */
+  firstAcceptedSec: number;
+}
+
+/**
+ * Итоги раунда, опубликованные организатором.
+ *
+ * Считаются в админке (только там есть эталонный список) и складываются на сервер
+ * целиком: участник забирает готовый результат одним запросом и не может собрать
+ * его сам — эталонного списка в его сборке нет.
+ */
+export interface PublishedResults {
+  round: number;
+  /** Название раунда на момент публикации. */
+  title: string;
+  publishedAt: string;
+  participants: number;
+  accepted: number;
+  totalReports: number;
+  foundBugs: number;
+  knownBugs: number;
+  standings: StandingRow[];
+  nominations: Nomination[];
+  /** Дефекты, которые не нашёл никто, — без подсказок и ключевых слов. */
+  missed: { code: string; title: string }[];
+}
+
 export const SEVERITY_LABELS: Record<Severity, string> = {
   blocker: 'Блокирующий',
   critical: 'Критический',

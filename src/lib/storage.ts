@@ -1,4 +1,12 @@
-import { EMPTY_ROUND, type AdminSnapshot, type BugReport, type Participant, type RoundState, type SessionState } from './types';
+import {
+  EMPTY_ROUND,
+  type AdminSnapshot,
+  type BugReport,
+  type Participant,
+  type PublishedResults,
+  type RoundState,
+  type SessionState,
+} from './types';
 
 const KEY = {
   session: 'qagame.session',
@@ -12,6 +20,8 @@ const KEY = {
   round: 'qagame.round',
   /** id репортов, которые участник удалил, — их надо убрать и на сервере. */
   deleted: 'qagame.deleted',
+  /** Опубликованные итоги раунда в офлайн-режиме. */
+  results: 'qagame.results',
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -57,6 +67,9 @@ export const storage = {
 
   getRound: () => read<RoundState>(KEY.round, EMPTY_ROUND),
   setRound: (r: RoundState) => write(KEY.round, r),
+
+  getResults: () => read<PublishedResults | null>(KEY.results, null),
+  setResults: (r: PublishedResults) => write(KEY.results, r),
 
   getAdminData: () =>
     read<Omit<AdminSnapshot, 'round'>>(KEY.admin, { participants: [], reports: [] }),
