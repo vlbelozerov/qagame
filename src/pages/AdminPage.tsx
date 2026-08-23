@@ -463,10 +463,6 @@ export const AdminPage: React.FC<{
       'Логин',
       'Заголовок',
       'Код разбора',
-      'Раздел',
-      'Шаги',
-      'Ожидаемый',
-      'Фактический',
       'Время от старта',
       'Создан',
       'Статус',
@@ -477,10 +473,6 @@ export const AdminPage: React.FC<{
       r.login,
       r.title,
       matches.get(r.id)?.code ?? '',
-      AREA_LABELS[r.area],
-      r.steps,
-      r.expected,
-      r.actual,
       formatDuration(r.elapsedSec),
       new Date(r.createdAt).toLocaleString('ru-RU'),
       STATUS_LABELS[r.status],
@@ -1227,12 +1219,6 @@ const ReportRow: React.FC<{
 
         {open && (
           <div className="space-y-3 border-t border-slate-100 pt-3">
-            <Detail title="Шаги воспроизведения" text={report.steps} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Detail title="Ожидаемый результат" text={report.expected} />
-              <Detail title="Фактический результат" text={report.actual} />
-            </div>
-
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
@@ -1286,13 +1272,6 @@ const ReportRow: React.FC<{
     </Card>
   );
 };
-
-const Detail: React.FC<{ title: string; text: string }> = ({ title, text }) => (
-  <div>
-    <p className="text-xs uppercase text-slate-500">{title}</p>
-    <p className="whitespace-pre-wrap text-sm">{text || '—'}</p>
-  </div>
-);
 
 const ImportModal: React.FC<{
   open: boolean;

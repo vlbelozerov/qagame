@@ -1,14 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Bug,
-  CheckCircle2,
-  Clock,
-  Flag,
-  ListChecks,
-  LogIn,
-  ShieldCheck,
-  Trophy,
-} from 'lucide-react';
+import { Bug, CheckCircle2, Clock, ListChecks, LogIn, ShieldCheck, Trophy } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Card, CardContent, Spinner, cn } from '@/components/ui';
 import { sha256Hex, storage } from '@/lib/storage';
@@ -121,9 +112,9 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
           <div>
             <h1 className="text-3xl font-bold leading-tight">Найдите как можно больше дефектов</h1>
             <p className="mt-2 text-slate-600">
-              Перед вами витрина интернет-магазина «СпортАрена». В неё намеренно внесены ошибки —
-              от опечаток до неверных расчётов в корзине. Ваша задача: за отведённое время найти
-              их как можно больше и описать так, чтобы находку можно было проверить.
+              Перед вами витрина интернет-магазина «СпортАрена». В неё намеренно внесены ошибки.
+              Ваша задача: за отведённое время найти их как можно больше и описать так, чтобы
+              находку можно было проверить.
             </p>
           </div>
 
@@ -153,12 +144,12 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
               </Rule>
               <Rule n={3} title="Заводите дефекты одной строкой">
                 Нашли проблему — опишите её в строке наверху и нажмите Enter. Больше ничего
-                указывать не нужно: ни серьёзность, ни раздел. Кнопка «Подробно» открывает форму
-                с шагами воспроизведения, если хотите расписать находку основательно.
+                указывать не нужно: серьёзность дефекта определит организатор при проверке.
               </Rule>
               <Rule n={4} title="Формулируйте понятно">
-                «Не работает корзина» проверить нельзя, а «Промокод SALE10 даёт 10 рублей вместо
-                10 %» — можно. Чем конкретнее заголовок, тем выше шанс, что дефект засчитают.
+                «Не работает корзина» — слишком общее описание дефекта, из него нельзя понять,
+                что именно работает не так, как должно. Чем конкретнее заголовок, тем выше шанс,
+                что дефект будет принят.
               </Rule>
               <Rule n={5} title="Повторы не приносят баллов">
                 Один и тот же дефект, заведённый дважды, засчитывается один раз. Лучше искать
@@ -192,27 +183,6 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="space-y-3">
-              <h2 className="flex items-center gap-2 font-semibold">
-                <Flag className="h-5 w-5 text-orange-600" />
-                Где искать
-              </h2>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  ['Каталог', 'поиск, фильтры, сортировка, карточки товаров, избранное'],
-                  ['Корзина', 'количество, промокоды, доставка, итоговая сумма'],
-                  ['Оформление заказа', 'валидация полей, оплата, подтверждение'],
-                  ['Интерфейс', 'тексты, опечатки, вёрстка, поведение на мобильном'],
-                ].map(([area, hint]) => (
-                  <div key={area} className="rounded-lg border border-slate-200 p-3">
-                    <p className="text-sm font-semibold">{area}</p>
-                    <p className="text-sm text-slate-500">{hint}</p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </section>
 
         <aside>

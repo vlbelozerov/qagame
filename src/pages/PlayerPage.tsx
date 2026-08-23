@@ -22,7 +22,6 @@ import { formatDuration } from '@/lib/format';
 import { newId, storage } from '@/lib/storage';
 import { encodeSnapshot, fetchResults, fetchRound, isOnlineMode, pushProgress } from '@/lib/sync';
 import {
-  AREA_LABELS,
   ROUND_STATUS_LABELS,
   STATUS_LABELS,
   STATUS_STYLES,
@@ -39,16 +38,15 @@ import { ShoppingCartApp } from '@/sandbox/ShoppingCart';
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
 
 /**
- * Черновик дефекта. Серьёзность участник не указывает — она берётся из эталонного
- * списка при разборе, поэтому здесь стоит нейтральное значение-заглушка.
+ * Значения полей, которые участник не заполняет: находка заводится одной строкой.
+ * Серьёзность берётся из эталонного списка при разборе, поэтому здесь заглушка.
  */
-const EMPTY_DRAFT = {
-  title: '',
+const REPORT_DEFAULTS = {
   steps: '',
   expected: '',
   actual: '',
   severity: 'major' as Severity,
-  area: 'catalog' as Area,
+  area: 'other' as Area,
 };
 
 export const PlayerPage: React.FC<{
@@ -66,7 +64,7 @@ export const PlayerPage: React.FC<{
   const [reports, setReports] = useState<BugReport[]>(() =>
     storage.getReports().filter((r) => r.login === login),
   );
-  const [formOpen, setFormOpen] = useState(false);
+  /** Правка формулировки уже заведённой находки — тем же одним полем. */
   const [editing, setEditing] = useState<BugReport | null>(null);
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [syncError, setSyncError] = useState('');
@@ -330,7 +328,7 @@ export const PlayerPage: React.FC<{
     return () => window.removeEventListener('pagehide', handler);
   }, []);
 
-  function addReport(draft: typeof EMPTY_DRAFT) {
+  function addReport(title: string) {
     // Страховка на случай, если раунд закрылся между отрисовкой и нажатием.
     if (!roundOpen) {
       setQuickError(lockReason || 'Приём дефектов закрыт');
@@ -341,7 +339,8 @@ export const PlayerPage: React.FC<{
       id: newId(),
       round: round.number,
       login,
-      ...draft,
+      title,
+      ...REPORT_DEFAULTS,
       createdAt: stamp,
       elapsedSec,
       status: 'pending',
@@ -353,21 +352,18 @@ export const PlayerPage: React.FC<{
     setTimeout(() => void sync(true), 0);
   }
 
-  function saveReport(draft: typeof EMPTY_DRAFT) {
-    if (editing) {
-      const stamp = new Date().toISOString();
-      setReports((prev) =>
-        prev.map((r) => (r.id === editing.id ? { ...r, ...draft, updatedAt: stamp } : r)),
-      );
-      setTimeout(() => void sync(true), 0);
-    } else {
-      addReport(draft);
-    }
-    setFormOpen(false);
+  /** Правка формулировки: меняется только текст находки, время остаётся прежним. */
+  function saveTitle(title: string) {
+    if (!editing) return;
+    const stamp = new Date().toISOString();
+    setReports((prev) =>
+      prev.map((r) => (r.id === editing.id ? { ...r, title, updatedAt: stamp } : r)),
+    );
     setEditing(null);
+    setTimeout(() => void sync(true), 0);
   }
 
-  /** Быстрое заведение одной строкой: заголовок и серьёзность, остальное можно дописать позже. */
+  /** Заведение находки одной строкой — единственный способ завести дефект. */
   function quickAdd() {
     const title = quickTitle.trim();
     if (title.length < 5) {
@@ -375,7 +371,7 @@ export const PlayerPage: React.FC<{
       return;
     }
     setQuickError('');
-    addReport({ ...EMPTY_DRAFT, title });
+    addReport(title);
     setQuickTitle('');
     setJustAdded(true);
     window.setTimeout(() => setJustAdded(false), 1800);
@@ -526,18 +522,6 @@ export const PlayerPage: React.FC<{
               Добавить
             </Button>
 
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={() => setFormOpen(true)}
-              disabled={!roundOpen}
-              data-testid="open-bug-form"
-              title="Открыть полную форму: шаги, ожидаемый и фактический результат"
-            >
-              Подробно
-            </Button>
-
             {quickError && <span className="text-sm text-rose-600">{quickError}</span>}
             {justAdded && !quickError && (
               <span className="flex items-center gap-1 text-sm text-emerald-700">
@@ -647,27 +631,17 @@ export const PlayerPage: React.FC<{
         onClose={() => setListOpen(false)}
         reports={roundReports}
         stats={stats}
-        onCreate={() => {
-          setListOpen(false);
-          setFormOpen(true);
-        }}
         onEdit={(r) => {
           setListOpen(false);
           setEditing(r);
-          setFormOpen(true);
         }}
         onDelete={deleteReport}
       />
 
-      <BugFormModal
-        open={formOpen}
-        initialTitle={quickTitle}
-        initial={editing}
-        onClose={() => {
-          setFormOpen(false);
-          setEditing(null);
-        }}
-        onSave={saveReport}
+      <EditTitleModal
+        report={editing}
+        onClose={() => setEditing(null)}
+        onSave={saveTitle}
       />
 
       <FinishModal
@@ -720,10 +694,9 @@ const BugListModal: React.FC<{
   onClose: () => void;
   reports: BugReport[];
   stats: { total: number };
-  onCreate: () => void;
   onEdit: (r: BugReport) => void;
   onDelete: (id: string) => void;
-}> = ({ canEdit, open, onClose, reports, stats, onCreate, onEdit, onDelete }) => (
+}> = ({ canEdit, open, onClose, reports, stats, onEdit, onDelete }) => (
   <Modal open={open} onClose={onClose} title={`Мои дефекты — ${stats.total}`} wide>
     <div className="space-y-3">
       {reports.length === 0 ? (
@@ -783,7 +756,6 @@ const BugListModal: React.FC<{
               )}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <Badge>{AREA_LABELS[r.area]}</Badge>
               <Badge className={STATUS_STYLES[r.status]}>{STATUS_LABELS[r.status]}</Badge>
               <Badge className="gap-1">
                 <Clock className="h-3 w-3" />
@@ -803,122 +775,61 @@ const BugListModal: React.FC<{
         })}
       </div>
 
-      <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+      <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
+        {canEdit && (
+          <p className="mr-auto text-sm text-slate-500">
+            Новую находку заводите строкой в шапке страницы.
+          </p>
+        )}
         <Button variant="secondary" onClick={onClose}>
           Закрыть
         </Button>
-        {canEdit && (
-          <Button onClick={onCreate}>
-            <Plus className="h-4 w-4" />
-            Завести дефект
-          </Button>
-        )}
       </div>
     </div>
   </Modal>
 );
 
-const BugFormModal: React.FC<{
-  open: boolean;
-  initial: BugReport | null;
-  /** Черновик из строки быстрого ввода — подставляется при создании нового дефекта. */
-  initialTitle?: string;
+/**
+ * Правка формулировки уже заведённой находки. Полей ровно столько же, сколько при
+ * заведении, — одно: расписывать дефект подробно в конкурсе не требуется.
+ */
+const EditTitleModal: React.FC<{
+  report: BugReport | null;
   onClose: () => void;
-  onSave: (draft: typeof EMPTY_DRAFT) => void;
-}> = ({ open, initial, initialTitle, onClose, onSave }) => {
-  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  onSave: (title: string) => void;
+}> = ({ report, onClose, onSave }) => {
+  const [title, setTitle] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!open) return;
+    if (!report) return;
+    setTitle(report.title);
     setError('');
-    setDraft(
-      initial
-        ? {
-            title: initial.title,
-            steps: initial.steps,
-            expected: initial.expected,
-            actual: initial.actual,
-            severity: initial.severity,
-            area: initial.area,
-          }
-        : { ...EMPTY_DRAFT, title: initialTitle ?? '' },
-    );
-  }, [open, initial, initialTitle]);
+  }, [report]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    // Обязателен только заголовок: остальное участник дописывает, если есть время.
-    if (draft.title.trim().length < 5) return setError('Опишите проблему хотя бы парой слов');
-    onSave({
-      ...draft,
-      title: draft.title.trim(),
-      steps: draft.steps.trim(),
-      expected: draft.expected.trim(),
-      actual: draft.actual.trim(),
-    });
+    const value = title.trim();
+    if (value.length < 5) return setError('Опишите проблему хотя бы парой слов');
+    onSave(value);
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={initial ? 'Редактирование дефекта' : 'Новый дефект'}>
+    <Modal open={report !== null} onClose={onClose} title="Изменить формулировку">
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="label">Заголовок</label>
+          <label className="label">Что сломалось</label>
           <input
             className="field"
-            value={draft.title}
-            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            placeholder="Кратко: что и где сломано"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (error) setError('');
+            }}
+            placeholder="Кратко: что и где работает не так"
             autoFocus
             data-testid="bug-title"
           />
-        </div>
-        <div>
-          <div>
-            <label className="label">Раздел — необязательно</label>
-            <select
-              className="field"
-              value={draft.area}
-              onChange={(e) => setDraft({ ...draft, area: e.target.value as Area })}
-              data-testid="bug-area"
-            >
-              {(Object.keys(AREA_LABELS) as Area[]).map((a) => (
-                <option key={a} value={a}>
-                  {AREA_LABELS[a]}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="label">Шаги воспроизведения — необязательно</label>
-          <textarea
-            className="field min-h-[96px]"
-            value={draft.steps}
-            onChange={(e) => setDraft({ ...draft, steps: e.target.value })}
-            placeholder={'1. Открыть каталог\n2. Ввести «ноутбук» в поиск\n3. …'}
-            data-testid="bug-steps"
-          />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="label">Ожидаемый — необязательно</label>
-            <textarea
-              className="field min-h-[72px]"
-              value={draft.expected}
-              onChange={(e) => setDraft({ ...draft, expected: e.target.value })}
-              data-testid="bug-expected"
-            />
-          </div>
-          <div>
-            <label className="label">Фактический — необязательно</label>
-            <textarea
-              className="field min-h-[72px]"
-              value={draft.actual}
-              onChange={(e) => setDraft({ ...draft, actual: e.target.value })}
-              data-testid="bug-actual"
-            />
-          </div>
         </div>
         {error && <Alert tone="error">{error}</Alert>}
         <div className="flex justify-end gap-2">

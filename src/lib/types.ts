@@ -151,12 +151,13 @@ export interface PublishedResults {
   missed: { code: string; title: string }[];
 }
 
+/** Шкала критичности принята в компании: правки здесь меняют её во всём приложении. */
 export const SEVERITY_LABELS: Record<Severity, string> = {
   blocker: 'Блокирующий',
   critical: 'Критический',
-  major: 'Значительный',
-  minor: 'Незначительный',
-  trivial: 'Тривиальный',
+  major: 'Высокий',
+  minor: 'Средний',
+  trivial: 'Низкий',
 };
 
 export const SEVERITY_STYLES: Record<Severity, string> = {
