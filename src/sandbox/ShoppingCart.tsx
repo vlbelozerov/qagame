@@ -975,8 +975,27 @@ const Checkout: React.FC<{
   const [delivery, setDelivery] = useState('courier');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  /**
+   * Самовывоз оплачивается в пункте выдачи, поэтому данные карты для него
+   * необязательны. Для курьера и почты заказ оплачивается онлайн — без карты
+   * его оформить нельзя.
+   */
+  const requiresCard = delivery !== 'pickup';
+
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
+
+  /** Смена способа доставки снимает ошибки по карте, если она больше не нужна. */
+  function chooseDelivery(id: string) {
+    setDelivery(id);
+    if (id !== 'pickup') return;
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.cardNumber;
+      delete next.cvv;
+      return next;
+    });
+  }
 
   function validate() {
     const next: Record<string, string> = {};
@@ -987,6 +1006,11 @@ const Checkout: React.FC<{
     if (!form.phone) next.phone = 'Укажите телефон';
     // Проверка адреса всегда истинна: сравнивается сам факт наличия поля.
     if (form.address === undefined) next.address = 'Укажите адрес доставки';
+    // Проверяем только заполненность: формат номера карты намеренно не валидируется.
+    if (requiresCard) {
+      if (!form.cardNumber.trim()) next.cardNumber = 'Укажите номер карты';
+      if (!form.cvv.trim()) next.cvv = 'Укажите CVV';
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -1043,7 +1067,7 @@ const Checkout: React.FC<{
               <button
                 key={o.id}
                 type="button"
-                onClick={() => setDelivery(o.id)}
+                onClick={() => chooseDelivery(o.id)}
                 className={cn(
                   'rounded-2xl px-4 py-3 text-left transition',
                   delivery === o.id
@@ -1070,9 +1094,29 @@ const Checkout: React.FC<{
           </div>
         </Section>
 
-        <Section step={3} title="Оплата">
+        <Section
+          step={3}
+          title="Оплата"
+          badge={
+            requiresCard ? (
+              <span
+                className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700 ring-1 ring-inset ring-orange-100"
+                data-testid="payment-required"
+              >
+                обязательно
+              </span>
+            ) : (
+              <span
+                className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500"
+                data-testid="payment-optional"
+              >
+                необязательно
+              </span>
+            )
+          }
+        >
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Номер карты">
+            <Field label="Номер карты" error={errors.cardNumber}>
               <input
                 className="field"
                 value={form.cardNumber}
@@ -1081,14 +1125,19 @@ const Checkout: React.FC<{
                 data-testid="co-card"
               />
             </Field>
-            <Field label="CVV">
+            <Field label="CVV" error={errors.cvv}>
               {/* CVV вводится открытым текстом и позже показывается в подтверждении. */}
               <input className="field" value={form.cvv} onChange={set('cvv')} data-testid="co-cvv" />
             </Field>
           </div>
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-            <CreditCard className="h-3.5 w-3.5" />
-            Данные карты передаются по защищённому соединению
+          <p
+            className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"
+            data-testid="payment-note"
+          >
+            <CreditCard className="h-3.5 w-3.5 shrink-0" />
+            {requiresCard
+              ? 'Доставка курьером и почтой оплачивается онлайн — заполните данные карты. Они передаются по защищённому соединению.'
+              : 'Самовывоз можно оплатить в пункте выдачи, данные карты заполнять не обязательно.'}
           </p>
         </Section>
 
@@ -1154,17 +1203,20 @@ const Checkout: React.FC<{
   );
 };
 
-const Section: React.FC<{ step: number; title: string; children: React.ReactNode }> = ({
-  step,
-  title,
-  children,
-}) => (
+const Section: React.FC<{
+  step: number;
+  title: string;
+  /** Необязательная пометка справа от заголовка — например, обязателен ли раздел. */
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ step, title, badge, children }) => (
   <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
     <h3 className="mb-4 flex items-center gap-2.5 text-[15px] font-semibold">
       <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
         {step}
       </span>
       {title}
+      {badge}
     </h3>
     {children}
   </section>
