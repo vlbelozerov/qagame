@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   Check,
+  ChevronDown,
   ChevronRight,
   CreditCard,
   Heart,
@@ -182,7 +183,7 @@ export const ShoppingCartApp: React.FC<{
   const cartCount = lines.length;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
       <StoreHeader
         view={view}
         setView={setView}
@@ -196,7 +197,7 @@ export const ShoppingCartApp: React.FC<{
         total={total}
       />
 
-      <div className="bg-slate-50/70 px-4 py-6 sm:px-6">
+      <div className="bg-slate-50 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {view === 'catalog' && (
           <Catalog
             preview={preview}
@@ -266,7 +267,7 @@ export const ShoppingCartApp: React.FC<{
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="pointer-events-auto flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm shadow-lg"
+            className="pointer-events-auto flex items-center gap-2.5 rounded-2xl bg-white px-4 py-3 text-sm shadow-[0_16px_40px_-16px_rgba(15,23,42,0.45)] ring-1 ring-slate-900/5"
             data-testid="toast"
           >
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
@@ -291,14 +292,14 @@ const StoreHeader: React.FC<{
   favoritesCount: number;
   total: number;
 }> = ({ view, setView, query, setQuery, cartCount, favoritesCount, total }) => (
-  <header className="border-b border-slate-200 bg-white">
-    <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+  <header className="border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6">
       <button
-        className="flex items-center gap-2"
+        className="flex items-center gap-2.5"
         onClick={() => setView('catalog')}
         data-testid="store-logo"
       >
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-sm">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/25">
           <ShoppingBag className="h-5 w-5" />
         </span>
         <span className="text-lg font-bold tracking-tight">
@@ -307,9 +308,9 @@ const StoreHeader: React.FC<{
       </button>
 
       <div className="relative order-last w-full sm:order-none sm:w-auto sm:flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
-          className="field pl-9"
+          className="field rounded-full border-transparent bg-slate-100 pl-10 focus:bg-white"
           placeholder="Искать товары для спорта"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -317,15 +318,15 @@ const StoreHeader: React.FC<{
         />
       </div>
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex items-center gap-1.5">
         <span
-          className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-600"
+          className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-rose-600"
           title="Избранное"
           data-testid="favorites-count"
         >
           <Heart className="h-5 w-5" />
           {favoritesCount > 0 && (
-            <span className="absolute right-1 top-1 min-w-[16px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white">
+            <span className="absolute right-0.5 top-0.5 min-w-[17px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-[17px] text-white ring-2 ring-white">
               {favoritesCount}
             </span>
           )}
@@ -333,13 +334,13 @@ const StoreHeader: React.FC<{
 
         <button
           onClick={() => setView('cart')}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+          className="flex items-center gap-2.5 rounded-full bg-slate-900 py-2 pl-3 pr-4 text-sm font-semibold text-white transition hover:bg-slate-800"
           data-testid="tab-cart"
         >
           <span className="relative">
             <ShoppingBag className="h-5 w-5" />
             {cartCount > 0 && (
-              <span className="absolute -right-2 -top-2 min-w-[16px] rounded-full bg-orange-600 px-1 text-[10px] font-bold leading-4 text-white">
+              <span className="absolute -right-2 -top-2 min-w-[17px] rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-[17px] text-white ring-2 ring-slate-900">
                 {cartCount}
               </span>
             )}
@@ -421,22 +422,35 @@ const Catalog: React.FC<{
   onQuickView,
 }) => (
   <div className="space-y-5">
-    <section className="overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-orange-900 px-6 py-8 text-white sm:px-10 sm:py-10">
-      <p className="text-xs uppercase tracking-widest text-orange-300">Сезон тренировок</p>
-      <h2 className="mt-2 max-w-lg text-2xl font-bold leading-tight sm:text-3xl">
+    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-orange-950 px-6 py-10 text-white shadow-xl shadow-slate-900/10 sm:px-10 sm:py-12">
+      {/* Два световых пятна вместо плоской заливки — баннер получает глубину. */}
+      <span
+        className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-orange-500/25 blur-3xl"
+        aria-hidden="true"
+      />
+      <span
+        className="pointer-events-none absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-rose-500/15 blur-3xl"
+        aria-hidden="true"
+      />
+      <div className="relative">
+      <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-200 ring-1 ring-inset ring-white/15">
+        Сезон тренировок
+      </p>
+      <h2 className="mt-3 max-w-xl text-3xl font-bold leading-[1.15] tracking-tight sm:text-4xl">
         Скидки до 25% на экипировку и домашние тренажёры
       </h2>
-      <div className="mt-4 flex flex-wrap gap-2 text-sm">
+      <div className="mt-5 flex flex-wrap gap-2 text-sm">
         {/*
           Пока витрина закрыта, показываем коды-приманки: настоящих их не существует,
           и увидеть их можно только сняв оверлей через инструменты разработчика.
         */}
-        <span className="rounded-lg bg-white/10 px-3 py-1.5 backdrop-blur">
-          Промокод <b className="font-mono">{preview ? HONEYPOT_CODES[0] : 'SALE10'}</b> — минус 10%
+        <span className="rounded-full bg-white/10 px-4 py-2 ring-1 ring-inset ring-white/15 backdrop-blur">
+          Промокод <b className="font-mono tracking-wide">{preview ? HONEYPOT_CODES[0] : 'SALE10'}</b> — минус 10%
         </span>
-        <span className="rounded-lg bg-white/10 px-3 py-1.5 backdrop-blur">
-          Промокод <b className="font-mono">{preview ? HONEYPOT_CODES[1] : 'QA2026'}</b> — минус 15%
+        <span className="rounded-full bg-white/10 px-4 py-2 ring-1 ring-inset ring-white/15 backdrop-blur">
+          Промокод <b className="font-mono tracking-wide">{preview ? HONEYPOT_CODES[1] : 'QA2026'}</b> — минус 15%
         </span>
+      </div>
       </div>
     </section>
 
@@ -458,27 +472,31 @@ const Catalog: React.FC<{
           key={c}
           onClick={() => setCategory(c)}
           className={cn(
-            'rounded-full border px-3.5 py-1.5 text-sm font-medium transition',
+            'rounded-full px-4 py-2 text-sm font-medium transition',
             category === c
-              ? 'border-slate-900 bg-slate-900 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+              ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/20'
+              : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:text-slate-900 hover:ring-slate-300',
           )}
           data-testid={`category-${c}`}
         >
           {c}
         </button>
       ))}
-      <select
-        className="field ml-auto w-auto"
-        value={sort}
-        onChange={(e) => setSort(e.target.value as Sort)}
-        data-testid="catalog-sort"
-      >
-        <option value="default">Сортировка: по умолчанию</option>
-        <option value="price-asc">Сначала дешёвые</option>
-        <option value="price-desc">Сначала дорогие</option>
-        <option value="rating">По рейтингу</option>
-      </select>
+      {/* Нативный select выдаёт себя системной стрелкой — рисуем свою. */}
+      <div className="relative ml-auto">
+        <select
+          className="field w-auto appearance-none rounded-full border-transparent bg-white py-2 pl-4 pr-10 font-medium ring-1 ring-inset ring-slate-200"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as Sort)}
+          data-testid="catalog-sort"
+        >
+          <option value="default">Сортировка: по умолчанию</option>
+          <option value="price-asc">Сначала дешёвые</option>
+          <option value="price-desc">Сначала дорогие</option>
+          <option value="rating">По рейтингу</option>
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      </div>
     </div>
 
     <p className="text-sm text-slate-500" data-testid="catalog-count">
@@ -505,9 +523,9 @@ const Catalog: React.FC<{
       </div>
     )}
 
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between pt-1">
       <button
-        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+        className="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:ring-slate-300 disabled:opacity-40 disabled:hover:ring-slate-200"
         onClick={() => setPage(page - 1)}
         disabled={page === 0}
       >
@@ -518,7 +536,7 @@ const Catalog: React.FC<{
       </span>
       {/* Кнопка «Вперёд» не ограничена числом страниц — можно уйти на пустую. */}
       <button
-        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+        className="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:ring-slate-300"
         onClick={() => setPage(page + 1)}
       >
         Вперёд
@@ -532,8 +550,8 @@ const Advantage: React.FC<{ icon: React.ReactNode; title: string; children: Reac
   title,
   children,
 }) => (
-  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+  <div className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-4 py-3.5 transition hover:border-slate-300">
+    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-50 to-rose-50 text-orange-600 ring-1 ring-inset ring-orange-100">
       {icon}
     </span>
     <div className="min-w-0 text-sm leading-tight">
@@ -564,18 +582,22 @@ const ProductCard: React.FC<{
   onToggleFavorite: (id: number) => void;
   onQuickView: (p: Product) => void;
 }> = ({ product: p, favorite, onAdd, onToggleFavorite, onQuickView }) => (
-  <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:shadow-lg">
-    <div className={cn('relative flex h-44 items-center justify-center bg-gradient-to-br', p.gradient)}>
-      <span className="text-6xl drop-shadow-sm transition group-hover:scale-110">{p.emoji}</span>
+  <article className="group flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_18px_40px_-18px_rgba(15,23,42,0.35)]">
+    <div className={cn('relative flex h-52 items-center justify-center bg-gradient-to-br p-4', p.gradient)}>
+      {/* Мягкое пятно света под товаром: подложка перестаёт выглядеть плоской заливкой. */}
+      <span className="absolute h-32 w-32 rounded-full bg-white/70 blur-2xl" aria-hidden="true" />
+      <span className="relative text-[72px] leading-none drop-shadow-[0_8px_16px_rgba(15,23,42,0.18)] transition duration-300 group-hover:-translate-y-1 group-hover:scale-105">
+        {p.emoji}
+      </span>
 
-      <div className="absolute left-3 top-3 flex flex-col gap-1.5">
+      <div className="absolute left-3 top-3 flex flex-col items-start gap-1.5">
         {p.oldPrice && (
-          <span className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-bold text-white shadow-sm">
+          <span className="rounded-full bg-rose-600 px-2.5 py-1 text-[11px] font-bold tracking-wide text-white shadow-sm">
             −{Math.round((1 - p.price / p.oldPrice) * 100)}%
           </span>
         )}
         {p.badge && (
-          <span className="rounded-lg bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm backdrop-blur">
+          <span className="rounded-full bg-white/85 px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-900/5 backdrop-blur">
             {p.badge}
           </span>
         )}
@@ -583,7 +605,7 @@ const ProductCard: React.FC<{
 
       <button
         onClick={() => onToggleFavorite(p.id)}
-        className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-slate-600 shadow-sm backdrop-blur transition hover:text-rose-600"
+        className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/85 text-slate-500 ring-1 ring-inset ring-slate-900/5 backdrop-blur transition hover:scale-105 hover:text-rose-600"
         aria-label="В избранное"
         data-testid={`favorite-${p.id}`}
       >
@@ -592,39 +614,54 @@ const ProductCard: React.FC<{
 
       <button
         onClick={() => onQuickView(p)}
-        className="absolute inset-x-3 bottom-3 rounded-lg bg-white/95 py-2 text-xs font-semibold text-slate-800 opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100"
+        className="absolute inset-x-3 bottom-3 translate-y-1 rounded-xl bg-slate-900/85 py-2 text-xs font-semibold text-white opacity-0 shadow-lg backdrop-blur transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"
         data-testid={`quick-view-${p.id}`}
       >
         Быстрый просмотр
       </button>
     </div>
 
-    <div className="flex flex-1 flex-col gap-2 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-400">{p.category}</p>
-      <h4 className="font-semibold leading-tight">{p.title}</h4>
+    <div className="flex flex-1 flex-col gap-1.5 p-5">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">
+        {p.category}
+      </p>
+      <h4 className="text-[15px] font-semibold leading-snug text-slate-900">{p.title}</h4>
 
       <div className="flex items-center gap-1.5 text-xs text-slate-500">
         <Stars rating={p.rating} />
         {/* Рейтинг по 5-балльной шкале подписан как «из 10». */}
-        <span className="font-medium text-slate-700">{p.rating}/10</span>
-        <span>· {p.reviews} отзывов</span>
+        <span className="font-semibold text-slate-700">{p.rating}/10</span>
+        <span className="text-slate-400">· {p.reviews} отзывов</span>
       </div>
 
-      <p className="line-clamp-2 text-sm text-slate-500">{p.description}</p>
+      <p className="line-clamp-2 text-sm leading-relaxed text-slate-500">{p.description}</p>
 
-      <p className={cn('text-xs font-medium', p.stock > 0 ? 'text-emerald-600' : 'text-rose-600')}>
+      <p
+        className={cn(
+          'mt-1 inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium',
+          p.stock > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600',
+        )}
+      >
+        <span
+          className={cn(
+            'h-1.5 w-1.5 rounded-full',
+            p.stock > 0 ? 'bg-emerald-500' : 'bg-rose-500',
+          )}
+        />
         {p.stock > 0 ? `В наличии: ${p.stock} шт.` : 'Нет в наличии'}
       </p>
 
-      <div className="mt-auto flex items-end gap-2 pt-2">
-        <span className="text-xl font-bold">{money(p.price)} ₽</span>
+      <div className="mt-auto flex items-end gap-2 pt-3">
+        <span className="text-[22px] font-bold tracking-tight text-slate-900">
+          {money(p.price)} ₽
+        </span>
         {p.oldPrice && (
-          <span className="pb-0.5 text-sm text-slate-400 line-through">{money(p.oldPrice)} ₽</span>
+          <span className="pb-1 text-sm text-slate-400 line-through">{money(p.oldPrice)} ₽</span>
         )}
       </div>
 
       <button
-        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-700"
+        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-700 hover:shadow-md hover:shadow-orange-600/25 active:translate-y-px"
         onClick={() => onAdd(p)}
         data-testid={`add-to-cart-${p.id}`}
       >
@@ -644,11 +681,14 @@ const QuickView: React.FC<{
       <div className="grid gap-5 sm:grid-cols-2">
         <div
           className={cn(
-            'flex h-56 items-center justify-center rounded-xl bg-gradient-to-br',
+            'relative flex h-64 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br ring-1 ring-inset ring-slate-900/5',
             product.gradient,
           )}
         >
-          <span className="text-7xl">{product.emoji}</span>
+          <span className="absolute h-40 w-40 rounded-full bg-white/70 blur-2xl" aria-hidden="true" />
+          <span className="relative text-[88px] leading-none drop-shadow-[0_10px_20px_rgba(15,23,42,0.18)]">
+            {product.emoji}
+          </span>
         </div>
         <div className="space-y-3">
           <p className="text-xs uppercase tracking-wide text-slate-400">{product.category}</p>
@@ -680,7 +720,7 @@ const QuickView: React.FC<{
           <p className="text-xs font-medium text-emerald-600">Товар в наличии</p>
 
           <button
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-700"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-700 hover:shadow-md hover:shadow-orange-600/25 active:translate-y-px"
             onClick={() => onAdd(product)}
             data-testid="quick-view-add"
           >
@@ -729,14 +769,14 @@ const CartView: React.FC<{
 }) => {
   if (cartView.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center">
+      <div className="rounded-3xl border border-slate-200/80 bg-white py-20 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <span className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
           <ShoppingBag className="h-7 w-7" />
         </span>
         <p className="font-semibold">В корзине пока пусто</p>
         <p className="mt-1 text-sm text-slate-500">Загляните в каталог — там есть что выбрать.</p>
         <button
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-700"
+          className="mt-5 inline-flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-700 active:translate-y-px"
           onClick={goCatalog}
         >
           Перейти в каталог
@@ -749,7 +789,7 @@ const CartView: React.FC<{
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <div className="space-y-3 lg:col-span-2">
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="overflow-x-auto rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {/* Фиксированная минимальная ширина ломает раскладку на мобильных. */}
           <div className="min-w-[720px] divide-y divide-slate-100">
             {cartView.map(({ line, product }, viewIndex) => (
@@ -760,7 +800,7 @@ const CartView: React.FC<{
               >
                 <span
                   className={cn(
-                    'flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-3xl',
+                    'flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-3xl ring-1 ring-inset ring-slate-900/5',
                     product.gradient,
                   )}
                 >
@@ -768,15 +808,15 @@ const CartView: React.FC<{
                 </span>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{product.title}</p>
+                  <p className="truncate font-semibold">{product.title}</p>
                   <p className="text-sm text-slate-500">
                     {money(product.oldPrice ?? product.price)} руб. за шт.
                   </p>
                 </div>
 
-                <div className="flex items-center rounded-lg border border-slate-200">
+                <div className="flex items-center rounded-full bg-slate-100 p-1">
                   <button
-                    className="px-2.5 py-2 text-slate-600 transition hover:bg-slate-50"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition hover:bg-white hover:shadow-sm"
                     onClick={() => changeQty(product.id, line.qty - 1)}
                     data-testid={`qty-minus-${product.id}`}
                     aria-label="Уменьшить"
@@ -784,13 +824,13 @@ const CartView: React.FC<{
                     <Minus className="h-3.5 w-3.5" />
                   </button>
                   <input
-                    className="w-12 border-x border-slate-200 py-2 text-center text-sm outline-none"
+                    className="w-11 bg-transparent text-center text-sm font-semibold outline-none"
                     value={line.qty}
                     onChange={(e) => changeQty(product.id, parseInt(e.target.value, 10))}
                     data-testid={`qty-input-${product.id}`}
                   />
                   <button
-                    className="px-2.5 py-2 text-slate-600 transition hover:bg-slate-50"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition hover:bg-white hover:shadow-sm"
                     onClick={() => changeQty(product.id, line.qty + 1)}
                     data-testid={`qty-plus-${product.id}`}
                     aria-label="Увеличить"
@@ -804,7 +844,7 @@ const CartView: React.FC<{
                 </span>
 
                 <button
-                  className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                  className="rounded-full p-2.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
                   onClick={() => removeLine(viewIndex)}
                   data-testid={`remove-${product.id}`}
                   aria-label="Удалить"
@@ -818,13 +858,13 @@ const CartView: React.FC<{
 
         <div className="flex gap-2">
           <button
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            className="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:text-slate-900 hover:ring-slate-300"
             onClick={goCatalog}
           >
             Продолжить покупки
           </button>
           <button
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            className="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:text-slate-900 hover:ring-slate-300"
             onClick={clearCart}
             data-testid="clear-cart"
           >
@@ -833,8 +873,8 @@ const CartView: React.FC<{
         </div>
       </div>
 
-      <div className="h-fit space-y-3 rounded-2xl border border-slate-200 bg-white p-4 lg:sticky lg:top-4">
-        <h3 className="font-semibold">Ваш заказ</h3>
+      <div className="h-fit space-y-3 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(15,23,42,0.35)] lg:sticky lg:top-4">
+        <h3 className="text-lg font-semibold">Ваш заказ</h3>
 
         <div className="flex gap-2">
           <input
@@ -845,7 +885,7 @@ const CartView: React.FC<{
             data-testid="promo-input"
           />
           <button
-            className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
             onClick={applyPromo}
             data-testid="promo-apply"
           >
@@ -879,7 +919,7 @@ const CartView: React.FC<{
           Доставка бесплатно при заказе свыше 5000 ₽
         </p>
 
-        <div className="flex items-baseline justify-between border-t border-slate-100 pt-3">
+        <div className="flex items-baseline justify-between gap-2 border-t border-slate-100 pt-3">
           <span className="font-semibold">Итого</span>
           {/* Итоговая сумма выводится с тремя знаками после запятой. */}
           <span className="text-2xl font-bold" data-testid="cart-total">
@@ -888,7 +928,7 @@ const CartView: React.FC<{
         </div>
 
         <button
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-700"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-700 hover:shadow-md hover:shadow-orange-600/25 active:translate-y-px"
           onClick={goCheckout}
           data-testid="go-checkout"
         >
@@ -1005,10 +1045,10 @@ const Checkout: React.FC<{
                 type="button"
                 onClick={() => setDelivery(o.id)}
                 className={cn(
-                  'rounded-xl border px-3 py-2.5 text-left transition',
+                  'rounded-2xl px-4 py-3 text-left transition',
                   delivery === o.id
-                    ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-200'
-                    : 'border-slate-200 bg-white hover:border-slate-300',
+                    ? 'bg-orange-50 text-orange-900 ring-2 ring-inset ring-orange-500'
+                    : 'bg-white ring-1 ring-inset ring-slate-200 hover:ring-slate-300',
                 )}
                 data-testid={`delivery-${o.id}`}
               >
@@ -1058,7 +1098,7 @@ const Checkout: React.FC<{
               {orders.map((o, i) => (
                 <div
                   key={i}
-                  className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-sm"
+                  className="rounded-2xl bg-emerald-50/70 p-4 text-sm ring-1 ring-inset ring-emerald-200"
                   data-testid="order-card"
                 >
                   <p className="flex items-center gap-2 font-semibold text-emerald-800">
@@ -1083,8 +1123,8 @@ const Checkout: React.FC<{
         )}
       </form>
 
-      <div className="h-fit space-y-3 rounded-2xl border border-slate-200 bg-white p-4 lg:sticky lg:top-4">
-        <h3 className="font-semibold">Итого по заказу</h3>
+      <div className="h-fit space-y-3 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(15,23,42,0.35)] lg:sticky lg:top-4">
+        <h3 className="text-lg font-semibold">Итого по заказу</h3>
         <dl className="space-y-1.5 text-sm">
           <SummaryRow label="Товаров, поз." value={String(itemsCount)} />
           <SummaryRow label="Товары" value={`${money(subtotal)} руб.`} />
@@ -1101,7 +1141,7 @@ const Checkout: React.FC<{
         <button
           type="submit"
           onClick={submit}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-700"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-700 hover:shadow-md hover:shadow-orange-600/25 active:translate-y-px"
           data-testid="place-order"
         >
           Подтвердить заказ
@@ -1119,9 +1159,9 @@ const Section: React.FC<{ step: number; title: string; children: React.ReactNode
   title,
   children,
 }) => (
-  <section className="rounded-2xl border border-slate-200 bg-white p-4">
-    <h3 className="mb-3 flex items-center gap-2 font-semibold">
-      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-xs text-white">
+  <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <h3 className="mb-4 flex items-center gap-2.5 text-[15px] font-semibold">
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
         {step}
       </span>
       {title}
@@ -1148,13 +1188,18 @@ const Field: React.FC<{ label: string; error?: string; children: React.ReactNode
 );
 
 const StoreFooter: React.FC = () => (
-  <footer className="border-t border-slate-200 bg-white px-4 py-5 text-xs text-slate-400 sm:px-6">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <span>© 2026 СпортАрена — магазин спортивных товаров</span>
-      <span className="flex gap-4">
-        <span>Доставка и оплата</span>
-        <span>Подбор размера</span>
-        <span>Контакты</span>
+  <footer className="border-t border-slate-100 bg-white px-4 py-6 text-xs text-slate-400 sm:px-6">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <span className="flex items-center gap-2">
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+          <ShoppingBag className="h-3.5 w-3.5" />
+        </span>
+        © 2026 СпортАрена — магазин спортивных товаров
+      </span>
+      <span className="flex gap-5">
+        <span className="transition hover:text-slate-600">Доставка и оплата</span>
+        <span className="transition hover:text-slate-600">Подбор размера</span>
+        <span className="transition hover:text-slate-600">Контакты</span>
       </span>
     </div>
   </footer>

@@ -14,7 +14,11 @@ export interface Product {
   emoji: string;
   /** Плашка на карточке товара. */
   badge?: 'Хит продаж' | 'Новинка';
-  /** Градиент подложки вместо фотографии — внешние картинки не грузим. */
+  /**
+   * Подложка вместо фотографии — внешние картинки не грузим.
+   * Тона намеренно светлые и приглушённые: в карточке должен читаться товар,
+   * а не заливка, и двенадцать разных подложек не должны спорить друг с другом.
+   */
   gradient: string;
 }
 
@@ -37,7 +41,7 @@ export const PRODUCTS: Product[] = [
     ],
     emoji: '👟',
     badge: 'Хит продаж',
-    gradient: 'from-orange-500 via-rose-500 to-pink-500',
+    gradient: 'from-orange-50 via-amber-50 to-rose-100',
   },
   {
     id: 2,
@@ -55,7 +59,7 @@ export const PRODUCTS: Product[] = [
       ['Макс. вес', '130 кг'],
     ],
     emoji: '🏃',
-    gradient: 'from-slate-600 via-slate-500 to-slate-400',
+    gradient: 'from-slate-100 via-slate-50 to-slate-200',
   },
   {
     id: 3,
@@ -75,7 +79,7 @@ export const PRODUCTS: Product[] = [
     ],
     emoji: '⌚',
     badge: 'Хит продаж',
-    gradient: 'from-sky-500 via-cyan-500 to-teal-400',
+    gradient: 'from-sky-50 via-cyan-50 to-sky-100',
   },
   {
     id: 4,
@@ -93,7 +97,7 @@ export const PRODUCTS: Product[] = [
       ['Гриф', 'сталь, насечка'],
     ],
     emoji: '🏋️',
-    gradient: 'from-emerald-500 via-teal-500 to-cyan-500',
+    gradient: 'from-emerald-50 via-teal-50 to-emerald-100',
   },
   {
     id: 5,
@@ -111,7 +115,7 @@ export const PRODUCTS: Product[] = [
       ['Вес', '2.4 кг'],
     ],
     emoji: '🧘',
-    gradient: 'from-violet-500 via-purple-500 to-fuchsia-500',
+    gradient: 'from-violet-50 via-purple-50 to-violet-100',
   },
   {
     id: 6,
@@ -130,7 +134,7 @@ export const PRODUCTS: Product[] = [
       ['Ручки', 'алюминий'],
     ],
     emoji: '🪢',
-    gradient: 'from-rose-500 via-pink-500 to-fuchsia-400',
+    gradient: 'from-rose-50 via-pink-50 to-rose-100',
   },
   {
     id: 7,
@@ -148,7 +152,7 @@ export const PRODUCTS: Product[] = [
       ['Дисплей', 'LCD'],
     ],
     emoji: '🚴',
-    gradient: 'from-amber-600 via-orange-500 to-red-500',
+    gradient: 'from-amber-50 via-orange-50 to-amber-100',
   },
   {
     id: 8,
@@ -168,7 +172,7 @@ export const PRODUCTS: Product[] = [
     ],
     emoji: '🚣',
     badge: 'Новинка',
-    gradient: 'from-blue-600 via-indigo-500 to-violet-500',
+    gradient: 'from-indigo-50 via-blue-50 to-indigo-100',
   },
   {
     id: 9,
@@ -186,7 +190,7 @@ export const PRODUCTS: Product[] = [
       ['Размеры', 'S–XXL'],
     ],
     emoji: '👕',
-    gradient: 'from-lime-500 via-green-500 to-emerald-500',
+    gradient: 'from-lime-50 via-green-50 to-lime-100',
   },
   {
     id: 10,
@@ -204,7 +208,7 @@ export const PRODUCTS: Product[] = [
       ['Отсек', 'на 150 мл'],
     ],
     emoji: '🥤',
-    gradient: 'from-cyan-500 via-sky-500 to-blue-500',
+    gradient: 'from-cyan-50 via-sky-50 to-blue-100',
   },
   {
     id: 11,
@@ -222,7 +226,7 @@ export const PRODUCTS: Product[] = [
       ['Размеры', '36–46'],
     ],
     emoji: '🧦',
-    gradient: 'from-stone-500 via-stone-400 to-neutral-400',
+    gradient: 'from-stone-100 via-stone-50 to-stone-200',
   },
   {
     id: 12,
@@ -242,7 +246,7 @@ export const PRODUCTS: Product[] = [
     ],
     emoji: '🥾',
     badge: 'Новинка',
-    gradient: 'from-fuchsia-600 via-pink-500 to-rose-500',
+    gradient: 'from-fuchsia-50 via-pink-50 to-fuchsia-100',
   },
 ];
 
