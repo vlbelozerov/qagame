@@ -30,6 +30,9 @@ var REPORT_COLUMNS = [
   'score',
   'reviewComment',
   'updatedAt',
+  // Код эталонного дефекта, проставленный при разборе. Добавлен позже остальных,
+  // поэтому стоит в конце: порядок прежних колонок менять нельзя.
+  'bugCode',
 ];
 
 var PARTICIPANT_COLUMNS = ['login', 'round', 'startedAt', 'lastSeenAt', 'finishedAt', 'peeked'];
@@ -114,8 +117,30 @@ function getSheet(name, columns) {
     sheet = ss.insertSheet(name);
     sheet.appendRow(columns);
     sheet.setFrozenRows(1);
+    return sheet;
   }
+  ensureColumns(sheet, columns);
   return sheet;
+}
+
+/**
+ * Дописывает недостающие заголовки в конец существующего листа.
+ *
+ * Без этого таблица, созданная прежней версией скрипта, теряла бы новые поля:
+ * организатору пришлось бы удалять листы и терять данные прошлых раундов.
+ */
+function ensureColumns(sheet, columns) {
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(columns);
+    sheet.setFrozenRows(1);
+    return;
+  }
+  var header = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  var missing = columns.filter(function (name) {
+    return header.indexOf(name) === -1;
+  });
+  if (missing.length === 0) return;
+  sheet.getRange(1, header.length + 1, 1, missing.length).setValues([missing]);
 }
 
 function readAll(sheet, columns) {
@@ -487,6 +512,8 @@ function upsertReports(reports) {
         score: current[12] || 0,
         reviewComment: current[13] || '',
         updatedAt: new Date().toISOString(),
+        // Код дефекта ставит организатор — данные участника его не перетирают.
+        bugCode: current[15] || '',
       };
       sheet
         .getRange(existingRow, 1, 1, REPORT_COLUMNS.length)
@@ -523,6 +550,7 @@ function handleSnapshot() {
       r.elapsedSec = Number(r.elapsedSec) || 0;
       r.score = Number(r.score) || 0;
       r.status = r.status || 'pending';
+      r.bugCode = String(r.bugCode || '');
       r.createdAt = asIso(r.createdAt);
       r.updatedAt = asIso(r.updatedAt);
       return r;
@@ -542,6 +570,7 @@ function handleVerdict(request) {
         sheet.getRange(r + 1, 13).setValue(request.score);
         sheet.getRange(r + 1, 14).setValue(request.reviewComment || '');
         sheet.getRange(r + 1, 15).setValue(new Date().toISOString());
+        sheet.getRange(r + 1, 16).setValue(request.bugCode || '');
         return { ok: true };
       }
     }

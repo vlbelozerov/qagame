@@ -39,6 +39,7 @@ import {
   SEVERITY_STYLES,
   STATUS_LABELS,
   STATUS_STYLES,
+  type Area,
   type BugReport,
   type Participant,
   type RoundState,
@@ -59,7 +60,7 @@ import {
   toPublishedResults,
   type RoundReport,
 } from '@/lib/roundReport';
-import { formatDuration } from '@/lib/format';
+import { formatDuration, plural } from '@/lib/format';
 
 type Filter = 'all' | ValidationStatus;
 type MatchFilter = 'any' | MatchConfidence | 'duplicate';
@@ -146,6 +147,14 @@ export const AdminPage: React.FC<{
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Список нужен для выбора дефекта в разборе, поэтому тянем его сразу, не дожидаясь
+  // нажатия «Авторазбор». Это отдельный чанк, в бандл участника он не попадает.
+  useEffect(() => {
+    import('@/lib/knownBugs')
+      .then((mod) => setKnownBugs(mod.KNOWN_BUGS))
+      .catch(() => undefined);
+  }, []);
 
   // В офлайн-режиме сводка живёт в localStorage, иначе вердикты терялись бы при перезагрузке.
   useEffect(() => {
@@ -308,6 +317,7 @@ export const AdminPage: React.FC<{
           status: updated.status,
           score: updated.score,
           reviewComment: updated.reviewComment,
+          bugCode: updated.bugCode ?? '',
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Часть вердиктов не сохранилась на сервере');
@@ -331,6 +341,7 @@ export const AdminPage: React.FC<{
             status: 'accepted' as const,
             score: bug ? SEVERITY_POINTS[bug.severity] : SEVERITY_POINTS.minor,
             reviewComment: `Авторазбор: ${match!.code}`,
+            bugCode: match!.code,
           },
         };
       });
@@ -350,6 +361,7 @@ export const AdminPage: React.FC<{
           status: 'duplicate' as const,
           score: 0,
           reviewComment: `Авторазбор: повтор ${match!.code}`,
+          bugCode: match!.code,
         },
       }));
     await applyVerdicts(patches);
@@ -369,6 +381,7 @@ export const AdminPage: React.FC<{
         status: updated.status,
         score: updated.score,
         reviewComment: updated.reviewComment,
+        bugCode: updated.bugCode ?? '',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Вердикт не сохранён на сервере');
@@ -424,6 +437,15 @@ export const AdminPage: React.FC<{
 
   const bugByCode = useMemo(() => new Map(knownBugs.map((b) => [b.code, b])), [knownBugs]);
 
+  /**
+   * Код дефекта, на который засчитана находка. Проставленный организатором имеет
+   * приоритет: покрытие и итоги должны отражать разбор, а не догадку автомата.
+   */
+  const codeOf = useCallback(
+    (r: BugReport) => r.bugCode || matches.get(r.id)?.code || '',
+    [matches],
+  );
+
   const pendingCount = useMemo(
     () => reports.filter((r) => r.status === 'pending').length,
     [reports],
@@ -436,18 +458,20 @@ export const AdminPage: React.FC<{
 
   /** Сводка авторазбора и покрытие эталонного списка. */
   const analysis = useMemo(() => {
-    if (matches.size === 0) return null;
+    // Покрытие есть и без авторазбора: коды могли быть проставлены руками.
+    if (matches.size === 0 && !reports.some((r) => r.bugCode)) return null;
     const pending = reports.filter((r) => r.status === 'pending');
     const counts = { high: 0, low: 0, none: 0, duplicates: 0 };
     const foundCodes = new Map<string, Set<string>>();
     reports.forEach((r) => {
-      const m = matches.get(r.id);
-      if (!m) return;
-      if (m.code) {
-        const who = foundCodes.get(m.code) ?? new Set<string>();
-        who.add(r.login);
-        foundCodes.set(m.code, who);
-      }
+      // Отклонённое не считается находкой, а вот принятое вручную — считается,
+      // даже если авторазбор его не распознал.
+      if (r.status === 'rejected') return;
+      const code = r.bugCode || matches.get(r.id)?.code || '';
+      if (!code) return;
+      const who = foundCodes.get(code) ?? new Set<string>();
+      who.add(r.login);
+      foundCodes.set(code, who);
     });
     pending.forEach((r) => {
       const m = matches.get(r.id);
@@ -462,7 +486,8 @@ export const AdminPage: React.FC<{
     const header = [
       'Логин',
       'Заголовок',
-      'Код разбора',
+      'Код дефекта',
+      'Код авторазбора',
       'Время от старта',
       'Создан',
       'Статус',
@@ -472,6 +497,7 @@ export const AdminPage: React.FC<{
     const rows = reports.map((r) => [
       r.login,
       r.title,
+      r.bugCode ?? '',
       matches.get(r.id)?.code ?? '',
       formatDuration(r.elapsedSec),
       new Date(r.createdAt).toLocaleString('ru-RU'),
@@ -896,9 +922,8 @@ export const AdminPage: React.FC<{
               report={r}
               match={matches.get(r.id)}
               honeypot={mentionsHoneypot(`${r.title} ${r.steps} ${r.expected} ${r.actual}`)}
-              knownBug={
-                matches.get(r.id)?.code ? bugByCode.get(matches.get(r.id)!.code) : undefined
-              }
+              knownBug={bugByCode.get(codeOf(r))}
+              knownBugs={knownBugs}
               onVerdict={setVerdict}
             />
           ))}
@@ -1123,20 +1148,33 @@ const ReportRow: React.FC<{
   report: BugReport;
   /** Результат авторазбора, если он запускался. */
   match?: MatchResult;
-  /** Эталонный дефект, на который указал разбор, — его текст нужен для сверки глазами. */
+  /** Эталонный дефект, на который засчитана находка, — его текст нужен для сверки глазами. */
   knownBug?: KnownBug;
+  /** Весь эталонный список — из него организатор выбирает дефект вручную. */
+  knownBugs: KnownBug[];
   /** Найденный в тексте маркер-приманка: такое видно только со снятым оверлеем. */
   honeypot?: string | null;
   onVerdict: (r: BugReport, patch: Partial<BugReport>) => void;
-}> = ({ report, match, knownBug, honeypot, onVerdict }) => {
+}> = ({ report, match, knownBug, knownBugs, honeypot, onVerdict }) => {
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState(report.reviewComment);
 
+  /** Что выбрано в списке: сохранённый код, иначе подсказка авторазбора. */
+  const selectedCode = report.bugCode ?? match?.code ?? '';
+  const selectedBug = knownBugs.find((b) => b.code === selectedCode);
+
   /**
-   * Баллы предлагаются по серьёзности эталонного дефекта. Участник серьёзность не
-   * указывает, поэтому если разбор ничего не нашёл — значение проставляет валидатор.
+   * Баллы предлагаются по серьёзности выбранного эталонного дефекта. Участник
+   * серьёзность не указывает, поэтому без выбора значение проставляет валидатор.
    */
-  const suggestedScore = knownBug ? SEVERITY_POINTS[knownBug.severity] : SEVERITY_POINTS.minor;
+  const suggestedScore = selectedBug
+    ? SEVERITY_POINTS[selectedBug.severity]
+    : SEVERITY_POINTS.minor;
+
+  /** Список для выбора: сгруппирован по разделам, чтобы не искать среди 39 строк. */
+  const groups = (['catalog', 'cart', 'checkout', 'ui'] as Area[])
+    .map((area) => ({ area, items: knownBugs.filter((b) => b.area === area) }))
+    .filter((g) => g.items.length > 0);
 
   return (
     <Card>
@@ -1149,6 +1187,11 @@ const ReportRow: React.FC<{
               {new Date(report.createdAt).toLocaleString('ru-RU')}
             </p>
           </button>
+          {report.bugCode && (
+            <Badge className="border-slate-300 bg-white font-mono" title="Засчитано как этот дефект">
+              {report.bugCode}
+            </Badge>
+          )}
           {knownBug && (
             <Badge className={SEVERITY_STYLES[knownBug.severity]}>
               {SEVERITY_LABELS[knownBug.severity]}
@@ -1219,6 +1262,42 @@ const ReportRow: React.FC<{
 
         {open && (
           <div className="space-y-3 border-t border-slate-100 pt-3">
+            <div>
+              <label className="label">Какой это дефект</label>
+              <select
+                className="field"
+                value={selectedCode}
+                onChange={(e) => onVerdict(report, { bugCode: e.target.value })}
+                data-testid={`bug-code-${report.id}`}
+              >
+                <option value="">— не из списка —</option>
+                {groups.map((g) => (
+                  <optgroup key={g.area} label={AREA_LABELS[g.area]}>
+                    {g.items.map((b) => (
+                      <option key={b.code} value={b.code}>
+                        {b.code} — {b.title}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                {selectedBug
+                  ? `${SEVERITY_LABELS[selectedBug.severity]} · ${plural(SEVERITY_POINTS[selectedBug.severity], 'балл', 'балла', 'баллов')} · ${selectedBug.hint}`
+                  : 'Без выбора находка не попадёт в покрытие и итоги раунда — баллы проставьте вручную.'}
+              </p>
+              {match?.code && match.code !== selectedCode && (
+                <button
+                  type="button"
+                  className="mt-1 text-xs font-medium text-orange-700 underline"
+                  onClick={() => onVerdict(report, { bugCode: match.code })}
+                  data-testid={`use-suggestion-${report.id}`}
+                >
+                  Авторазбор предлагает {match.code} — подставить
+                </button>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
@@ -1227,8 +1306,10 @@ const ReportRow: React.FC<{
                     status: 'accepted',
                     score: report.score || suggestedScore,
                     reviewComment: comment,
+                    bugCode: selectedCode,
                   })
                 }
+                data-testid={`accept-${report.id}`}
               >
                 Принять (+{report.score || suggestedScore})
               </Button>
@@ -1236,8 +1317,14 @@ const ReportRow: React.FC<{
                 size="sm"
                 variant="secondary"
                 onClick={() =>
-                  onVerdict(report, { status: 'duplicate', score: 0, reviewComment: comment })
+                  onVerdict(report, {
+                    status: 'duplicate',
+                    score: 0,
+                    reviewComment: comment,
+                    bugCode: selectedCode,
+                  })
                 }
+                data-testid={`duplicate-${report.id}`}
               >
                 Дубликат
               </Button>
@@ -1247,6 +1334,7 @@ const ReportRow: React.FC<{
                 onClick={() =>
                   onVerdict(report, { status: 'rejected', score: 0, reviewComment: comment })
                 }
+                data-testid={`reject-${report.id}`}
               >
                 Отклонить
               </Button>

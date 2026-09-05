@@ -54,7 +54,9 @@ export function buildRoundReport(
   const inRound = reports.filter((r) => (r.round ?? 0) === round);
   const accepted = inRound.filter((r) => r.status === 'accepted');
   const logins = [...new Set(inRound.map((r) => r.login))];
-  const codeOf = (r: BugReport) => matches.get(r.id)?.code ?? '';
+  // Проставленный организатором код важнее догадки матчера: покрытие и номинации
+  // должны отражать разбор, а не то, что автомат сумел распознать по словам.
+  const codeOf = (r: BugReport) => r.bugCode || matches.get(r.id)?.code || '';
   const bugByCode = new Map(knownBugs.map((b) => [b.code, b]));
 
   // Кто какой дефект нашёл: по принятым, каждый участник считается один раз.

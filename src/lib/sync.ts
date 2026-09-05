@@ -104,7 +104,14 @@ export function fetchSnapshot(login: string, password: string) {
 export function pushVerdict(
   login: string,
   password: string,
-  verdict: { id: string; status: ValidationStatus; score: number; reviewComment: string },
+  verdict: {
+    id: string;
+    status: ValidationStatus;
+    score: number;
+    reviewComment: string;
+    /** Код эталонного дефекта; пустая строка — находка не из списка. */
+    bugCode: string;
+  },
 ) {
   return call<{ ok: true }>('adminVerdict', { login, password, ...verdict });
 }
