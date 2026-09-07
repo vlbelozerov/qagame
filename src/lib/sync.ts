@@ -1,4 +1,5 @@
 import { config } from '@/config';
+import type { KnownBug } from './knownBugs';
 import type {
   AdminSnapshot,
   BugReport,
@@ -114,6 +115,17 @@ export function pushVerdict(
   },
 ) {
   return call<{ ok: true }>('adminVerdict', { login, password, ...verdict });
+}
+
+/**
+ * Эталонный список дефектов для админки.
+ *
+ * В бандл он не входит намеренно: файл со сборкой открыт любому участнику, и список
+ * ответов из него можно было бы просто прочитать. Сервер отдаёт его только после
+ * проверки пароля организатора.
+ */
+export function fetchReference(login: string, password: string) {
+  return call<KnownBug[]>('adminReference', { login, password });
 }
 
 /**

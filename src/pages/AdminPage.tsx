@@ -22,6 +22,7 @@ import { Alert, Badge, Button, Card, CardContent, Modal, Spinner, cn } from '@/c
 import { storage } from '@/lib/storage';
 import {
   decodeSnapshot,
+  fetchReference,
   fetchSnapshot,
   finishGame as finishRoundRequest,
   isOnlineMode,
@@ -148,13 +149,17 @@ export const AdminPage: React.FC<{
     void load();
   }, [load]);
 
-  // Список нужен для выбора дефекта в разборе, поэтому тянем его сразу, не дожидаясь
-  // нажатия «Авторазбор». Это отдельный чанк, в бандл участника он не попадает.
+  // Список нужен для выбора дефекта в разборе, поэтому запрашиваем его сразу, не
+  // дожидаясь нажатия «Авторазбор». Ошибку здесь не показываем: она всплывёт там,
+  // где список действительно понадобился.
   useEffect(() => {
-    import('@/lib/knownBugs')
-      .then((mod) => setKnownBugs(mod.KNOWN_BUGS))
+    if (!isOnlineMode()) return;
+    fetchReference(adminName, adminSecret)
+      // Форму ответа проверяем: без Reference.gs сервер может вернуть что угодно,
+      // и админка не должна из-за этого падать в белый экран.
+      .then((list) => Array.isArray(list) && setKnownBugs(list))
       .catch(() => undefined);
-  }, []);
+  }, [adminName, adminSecret]);
 
   // В офлайн-режиме сводка живёт в localStorage, иначе вердикты терялись бы при перезагрузке.
   useEffect(() => {
@@ -267,11 +272,28 @@ export const AdminPage: React.FC<{
     if (ok) void applyGame('reset');
   }
 
+  /**
+   * Эталонный список приходит с сервера по паролю организатора. В бандл он не
+   * включён намеренно: сборку страницы может открыть любой участник.
+   */
   async function loadKnownBugs(): Promise<KnownBug[]> {
     if (knownBugs.length > 0) return knownBugs;
-    const mod = await import('@/lib/knownBugs');
-    setKnownBugs(mod.KNOWN_BUGS);
-    return mod.KNOWN_BUGS;
+    if (!isOnlineMode()) {
+      throw new Error(
+        'Эталонный список хранится в проекте Apps Script и доступен только по паролю ' +
+          'организатора. В офлайн-режиме (без syncEndpoint) авторазбор и выбор дефекта ' +
+          'недоступны — вердикты и баллы проставляются вручную.',
+      );
+    }
+    const list = await fetchReference(adminName, adminSecret);
+    if (!Array.isArray(list)) {
+      throw new Error(
+        'Сервер вернул не эталонный список. Проверьте, что в проекте Apps Script есть ' +
+          'файл Reference.gs, и создайте новое развёртывание.',
+      );
+    }
+    setKnownBugs(list);
+    return list;
   }
 
   async function openReference() {
@@ -281,11 +303,9 @@ export const AdminPage: React.FC<{
     setKnownBugsError('');
     try {
       await loadKnownBugs();
-    } catch {
+    } catch (err) {
       setKnownBugsError(
-        'Не удалось загрузить эталонный список. Обычно помогает обновление страницы ' +
-          'с Ctrl+Shift+R: браузер держит в кэше старую версию приложения и просит файл, ' +
-          'которого после обновления сайта уже нет.',
+        err instanceof Error ? err.message : 'Не удалось загрузить эталонный список.',
       );
     }
   }
@@ -294,9 +314,13 @@ export const AdminPage: React.FC<{
   async function runAnalysis() {
     setAnalyzing(true);
     setAutoNote('');
+    setError('');
     try {
       const bugs = await loadKnownBugs();
       setMatches(matchAll(reports, bugs));
+    } catch (err) {
+      // Списка может не быть: офлайн-режим или в Apps Script не добавлен Reference.gs.
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить эталонный список');
     } finally {
       setAnalyzing(false);
     }
@@ -1283,9 +1307,11 @@ const ReportRow: React.FC<{
                 ))}
               </select>
               <p className="mt-1 text-xs text-slate-500">
-                {selectedBug
-                  ? `${SEVERITY_LABELS[selectedBug.severity]} · ${plural(SEVERITY_POINTS[selectedBug.severity], 'балл', 'балла', 'баллов')} · ${selectedBug.hint}`
-                  : 'Без выбора находка не попадёт в покрытие и итоги игры — баллы проставьте вручную.'}
+                {knownBugs.length === 0
+                  ? 'Эталонный список не загружен: он хранится в проекте Apps Script и приходит по паролю организатора. Проверьте, что в проект добавлен файл Reference.gs.'
+                  : selectedBug
+                    ? `${SEVERITY_LABELS[selectedBug.severity]} · ${plural(SEVERITY_POINTS[selectedBug.severity], 'балл', 'балла', 'баллов')} · ${selectedBug.hint}`
+                    : 'Без выбора находка не попадёт в покрытие и итоги игры — баллы проставьте вручную.'}
               </p>
               {match?.code && match.code !== selectedCode && (
                 <button

@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 /**
@@ -13,6 +14,12 @@ import { chromium } from 'playwright';
  */
 
 const BASE = process.env.QAGAME_URL ?? 'http://localhost:4176/';
+
+/** Эталонный список берём из сгенерированного Reference.gs — как это делает сервер. */
+const referenceSource = readFileSync(new URL('../../google-apps-script/Reference.gs', import.meta.url), 'utf8');
+const KNOWN_BUGS = JSON.parse(
+  referenceSource.slice(referenceSource.indexOf('['), referenceSource.lastIndexOf(']') + 1),
+);
 const CHROME = process.env.CHROME_PATH ?? undefined;
 
 const ok = (n, v, d = '') => { console.log(`${v ? '✓' : '✗ ПРОВАЛ'} ${n}${d ? ' — ' + d : ''}`); if (!v) process.exitCode = 1; };
@@ -53,6 +60,7 @@ const server = async (route) => {
   switch (body.action) {
     case 'round': return reply(round);
     case 'adminLogin': return reply({ ok: true });
+    case 'adminReference': return reply(KNOWN_BUGS);
     case 'adminSnapshot': return reply({ round, participants, reports });
     case 'adminVerdict': {
       verdicts.push(body);
@@ -138,6 +146,15 @@ ok('оба кода попали в зачёт участникам',
 ok('номинации знают названия дефектов, а не только коды',
   published?.nominations.some((n) => n.key === 'popular' && /[А-Яа-я]{4}/.test(n.winner)),
   JSON.stringify(published?.nominations.map((n) => `${n.key}:${n.winner}`)));
+
+// --- Список не должен попадать в сборку: её открывает любой участник ---
+const bundles = readdirSync(new URL('../../dist/assets/', import.meta.url))
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => readFileSync(new URL(`../../dist/assets/${f}`, import.meta.url), 'utf8'));
+const leaked = ['CAT-01', 'регистрозависим', KNOWN_BUGS[0].hint.slice(0, 20)].filter((needle) =>
+  bundles.some((b) => b.includes(needle)),
+);
+ok('эталонного списка нет в собранном бандле', leaked.length === 0, leaked.join(', '));
 
 console.log(errors.length ? 'ОШИБКИ:\n' + errors.join('\n') : 'Ошибок в консоли нет');
 if (errors.length) process.exitCode = 1;

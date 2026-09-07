@@ -68,11 +68,27 @@ function doPost(e) {
     if (action === 'adminFinishRound') return json({ ok: true, result: finishRound() });
     if (action === 'adminReset') return json({ ok: true, result: resetCompetition() });
     if (action === 'adminPublishResults') return json({ ok: true, result: writeResults(request) });
+    if (action === 'adminReference') return json({ ok: true, result: referenceList() });
 
     return json({ ok: false, error: 'Неизвестное действие: ' + action });
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) });
   }
+}
+
+/**
+ * Эталонный список дефектов. Лежит в Reference.gs этого же проекта и отдаётся
+ * только организатору: в бандл участника он не попадает, иначе ответы можно было
+ * бы прочитать прямо из исходников страницы.
+ */
+function referenceList() {
+  if (typeof KNOWN_BUGS === 'undefined') {
+    throw new Error(
+      'В проекте нет файла Reference.gs с эталонным списком. Соберите его командой ' +
+        '«npm run build:reference» и добавьте в Apps Script как отдельный файл.',
+    );
+  }
+  return KNOWN_BUGS;
 }
 
 function doGet() {

@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && npm run check:matcher && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "check:matcher": "tsx scripts/check-matcher.ts"
+    "check:matcher": "tsx scripts/check-matcher.ts",
+    "build:reference": "tsx scripts/build-reference.ts"
   },
   "dependencies": {
     "lucide-react": "^0.451.0",
