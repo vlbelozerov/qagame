@@ -4,7 +4,7 @@ import type {
   BugReport,
   Participant,
   PublishedResults,
-  RoundState,
+  GameState,
   ValidationStatus,
 } from './types';
 
@@ -43,13 +43,13 @@ async function call<T>(action: string, payload: Record<string, unknown>): Promis
 
 /**
  * Отправка прогресса участника. Сервер выполняет upsert по id репорта — вызов идемпотентен.
- * В ответе приходит актуальное состояние раунда: так участник узнаёт о старте и
+ * В ответе приходит актуальное состояние игры: так участник узнаёт о старте и
  * завершении, даже если организатор нажал кнопку минуту назад.
  */
 export interface SubmitResult {
   accepted: string[];
   rejected: string[];
-  round: RoundState;
+  round: GameState;
   /**
    * Строки участника со стороны сервера: и вердикты организатора (без них статус
    * вечно «на проверке»), и сами находки — чтобы список восстанавливался в чужом
@@ -66,28 +66,28 @@ export function pushProgress(
   return call<SubmitResult>('submit', { participant, reports, deletedIds });
 }
 
-/** Состояние раунда без авторизации — его читают и участники. */
-export function fetchRound() {
-  return call<RoundState>('round', {});
+/** Состояние игры без авторизации — его читают и участники. */
+export function fetchGame() {
+  return call<GameState>('round', {});
 }
 
-/** Организатор открывает новый раунд. */
-export function startRound(
+/** Организатор запускает игру. */
+export function startGame(
   login: string,
   password: string,
   options: { title: string; durationMinutes: number },
 ) {
-  return call<RoundState>('adminStartRound', { login, password, ...options });
+  return call<GameState>('adminStartRound', { login, password, ...options });
 }
 
-/** Организатор закрывает раунд: приём дефектов прекращается. */
-export function finishRound(login: string, password: string) {
-  return call<RoundState>('adminFinishRound', { login, password });
+/** Организатор завершает игру: приём дефектов прекращается. */
+export function finishGame(login: string, password: string) {
+  return call<GameState>('adminFinishRound', { login, password });
 }
 
-/** Полный сброс конкурса: участники и дефекты удаляются, нумерация раундов обнуляется. */
+/** Полный сброс конкурса: участники и дефекты удаляются, счётчик запусков обнуляется. */
 export function resetCompetition(login: string, password: string) {
-  return call<RoundState>('adminReset', { login, password });
+  return call<GameState>('adminReset', { login, password });
 }
 
 /** Проверка пароля админа на стороне Apps Script. */
@@ -117,7 +117,7 @@ export function pushVerdict(
 }
 
 /**
- * Публикация итогов раунда участникам. Считает их админка — только у неё есть
+ * Публикация итогов игры участникам. Считает их админка — только у неё есть
  * эталонный список, — а сервер лишь хранит готовый результат.
  */
 export function publishResults(login: string, password: string, results: PublishedResults) {
@@ -129,7 +129,7 @@ export function publishResults(login: string, password: string, results: Publish
   });
 }
 
-/** Итоги раунда для участника. null — организатор ещё не публиковал их. */
+/** Итоги игры для участника. null — организатор ещё не публиковал их. */
 export function fetchResults(round: number) {
   return call<PublishedResults | null>('results', { round });
 }

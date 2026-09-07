@@ -1,10 +1,10 @@
 import {
-  EMPTY_ROUND,
+  EMPTY_GAME,
   type AdminSnapshot,
   type BugReport,
   type Participant,
   type PublishedResults,
-  type RoundState,
+  type GameState,
   type SessionState,
 } from './types';
 
@@ -16,11 +16,11 @@ const KEY = {
   synced: 'qagame.synced',
   /** Сводка админки в офлайн-режиме: импортированные участники и проставленные вердикты. */
   admin: 'qagame.admin',
-  /** Состояние раунда в офлайн-режиме. */
+  /** Состояние игры в офлайн-режиме. */
   round: 'qagame.round',
   /** id репортов, которые участник удалил, — их надо убрать и на сервере. */
   deleted: 'qagame.deleted',
-  /** Опубликованные итоги раунда в офлайн-режиме. */
+  /** Опубликованные итоги игры в офлайн-режиме. */
   results: 'qagame.results',
 } as const;
 
@@ -65,8 +65,8 @@ export const storage = {
   },
   clearDeletedIds: () => write(KEY.deleted, []),
 
-  getRound: () => read<RoundState>(KEY.round, EMPTY_ROUND),
-  setRound: (r: RoundState) => write(KEY.round, r),
+  getGame: () => read<GameState>(KEY.round, EMPTY_GAME),
+  setGame: (r: GameState) => write(KEY.round, r),
 
   getResults: () => read<PublishedResults | null>(KEY.results, null),
   setResults: (r: PublishedResults) => write(KEY.results, r),
@@ -90,7 +90,7 @@ export const storage = {
 
 /**
  * Логин для демо-режима: генерируется один раз и переживает перезагрузку,
- * чтобы раунд не начинался заново при каждом обновлении страницы.
+ * чтобы отсчёт не начинался заново при каждом обновлении страницы.
  */
 export function guestLogin(): string {
   const existing = storage.getParticipant();

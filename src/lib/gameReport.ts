@@ -7,12 +7,12 @@ import type {
   Nomination,
   Participant,
   PublishedResults,
-  RoundState,
+  GameState,
   StandingRow,
 } from './types';
 
 /**
- * Итоги раунда для объявления результатов.
+ * Итоги игры для объявления результатов.
  *
  * Считается только по принятым дефектам: отклонённые и дубликаты не должны влиять
  * ни на номинации, ни на статистику находок. Номинация не выводится вовсе, если
@@ -22,7 +22,7 @@ import type {
 
 export type { Nomination } from './types';
 
-export interface RoundReport {
+export interface GameReport {
   round: number;
   participants: number;
   accepted: number;
@@ -33,7 +33,7 @@ export interface RoundReport {
   nominations: Nomination[];
   /** Дефекты, которые не нашёл никто, — их зачитывают в конце. */
   missed: KnownBug[];
-  /** Турнирная таблица раунда: её же видит участник в личных итогах. */
+  /** Турнирная таблица: её же видит участник в личных итогах. */
   standings: StandingRow[];
 }
 
@@ -44,13 +44,13 @@ function formatTime(totalSec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function buildRoundReport(
+export function buildGameReport(
   round: number,
   reports: BugReport[],
   matches: Map<string, MatchResult>,
   knownBugs: KnownBug[],
   participants: Participant[] = [],
-): RoundReport {
+): GameReport {
   const inRound = reports.filter((r) => (r.round ?? 0) === round);
   const accepted = inRound.filter((r) => r.status === 'accepted');
   const logins = [...new Set(inRound.map((r) => r.login))];
@@ -83,7 +83,7 @@ export function buildRoundReport(
           emoji: '⚡',
           title: 'Самая быстрая находка',
           winner: fastest.login,
-          detail: `«${fastest.title}» — на ${formatTime(fastest.elapsedSec)} от старта раунда`,
+          detail: `«${fastest.title}» — на ${formatTime(fastest.elapsedSec)} от старта игры`,
           winnerLogins: [fastest.login],
         }
       : null,
@@ -136,7 +136,7 @@ export function buildRoundReport(
           emoji: '🎯',
           title: 'Пулемётчик',
           winner: mostAccepted[0],
-          detail: `${plural(mostAccepted[1], 'подтверждённая находка', 'подтверждённые находки', 'подтверждённых находок')} за раунд`,
+          detail: `${plural(mostAccepted[1], 'подтверждённая находка', 'подтверждённые находки', 'подтверждённых находок')} за игру`,
           winnerLogins: [mostAccepted[0]],
         }
       : null,
@@ -201,7 +201,7 @@ export function buildRoundReport(
       : null,
   );
 
-  // --- Последняя находка раунда ---
+  // --- Последняя находка игры ---
   const lastOne = [...accepted].sort((a, b) => b.elapsedSec - a.elapsedSec)[0];
   add(
     lastOne && fastest && lastOne.id !== fastest.id
@@ -277,8 +277,8 @@ export function buildRoundReport(
           winner: [...caught].join(', '),
           detail:
             caught.size === 1
-              ? 'заглянул в витрину до старта раунда — оверлей это заметил'
-              : `заглянули в витрину до старта раунда: ${caught.size}`,
+              ? 'заглянул в витрину до старта игры — оверлей это заметил'
+              : `заглянули в витрину до старта игры: ${caught.size}`,
           winnerLogins: [...caught],
         }
       : null,
@@ -287,7 +287,7 @@ export function buildRoundReport(
   const missed = knownBugs.filter((b) => !findersByCode.has(b.code));
 
   // --- Турнирная таблица ---
-  // В неё попадают все, кто заводил дефекты, и все зарегистрированные в раунде
+  // В неё попадают все, кто заводил дефекты, и все зарегистрированные в игре
   // участники: вошедший и ничего не нашедший тоже должен увидеть себя в списке.
   const standingLogins = [
     ...new Set([...logins, ...participants.filter((p) => p.round === round).map((p) => p.login)]),
@@ -351,7 +351,7 @@ export function buildRoundReport(
  * списка и номинация «Любопытный» — публично называть подглядывавших организатор
  * не обязан, в админке она остаётся.
  */
-export function toPublishedResults(report: RoundReport, round: RoundState): PublishedResults {
+export function toPublishedResults(report: GameReport, round: GameState): PublishedResults {
   return {
     round: report.round,
     title: round.number === report.round ? round.title : '',
@@ -368,9 +368,9 @@ export function toPublishedResults(report: RoundReport, round: RoundState): Publ
 }
 
 /** Текст для рассылки в чат: номинации без вёрстки. */
-export function reportToText(report: RoundReport): string {
+export function reportToText(report: GameReport): string {
   const lines = [
-    `Итоги раунда ${report.round}`,
+    'Итоги игры',
     `Участников: ${report.participants} · подтверждённых находок: ${report.accepted} из ${report.totalReports} заявок`,
     `Найдено дефектов: ${report.foundBugs} из ${report.knownBugs}`,
     '',

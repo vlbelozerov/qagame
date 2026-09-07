@@ -40,7 +40,7 @@ var PARTICIPANT_COLUMNS = ['login', 'round', 'startedAt', 'lastSeenAt', 'finishe
 var STATE_COLUMNS = ['number', 'status', 'title', 'startedAt', 'endsAt', 'finishedAt'];
 
 /**
- * Опубликованные итоги раунда. Хранятся кусками: в ячейку Sheets влезает 50 000
+ * Опубликованные итоги игры. Хранятся кусками: в ячейку Sheets влезает 50 000
  * символов, а таблица со ста участниками и номинациями может оказаться длиннее.
  */
 var RESULTS_COLUMNS = ['round', 'publishedAt', 'part', 'payload'];
@@ -127,7 +127,7 @@ function getSheet(name, columns) {
  * Дописывает недостающие заголовки в конец существующего листа.
  *
  * Без этого таблица, созданная прежней версией скрипта, теряла бы новые поля:
- * организатору пришлось бы удалять листы и терять данные прошлых раундов.
+ * организатору пришлось бы удалять листы и терять данные прошлых запусков.
  */
 function ensureColumns(sheet, columns) {
   if (sheet.getLastRow() === 0) {
@@ -242,7 +242,7 @@ function finishRound() {
   }
 }
 
-/** Новый конкурс: данные прошлого стираются, нумерация раундов начинается заново. */
+/** Новый конкурс: данные прошлого стираются, счётчик запусков обнуляется. */
 function resetCompetition() {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -271,14 +271,14 @@ function resetCompetition() {
 }
 
 /**
- * Сохранение итогов раунда. Публикация повторяется столько раз, сколько нужно
- * организатору, — старые куски того же раунда стираются перед записью новых.
+ * Сохранение итогов игры. Публикация повторяется столько раз, сколько нужно
+ * организатору, — старые куски того же запуска стираются перед записью новых.
  */
 function writeResults(request) {
   var round = Number(request.round) || 0;
-  if (!round) throw new Error('Не указан раунд для публикации итогов');
+  if (!round) throw new Error('Не указан запуск игры для публикации итогов');
   var payload = String(request.payload || '');
-  if (!payload) throw new Error('Пустые итоги раунда');
+  if (!payload) throw new Error('Пустые итоги игры');
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -307,8 +307,8 @@ function dropResultRows(sheet, round) {
 }
 
 /**
- * Итоги раунда для участника. Раунд 0 или не указан — отдаём последние
- * опубликованные: участник спрашивает итоги, ещё не зная их номера.
+ * Итоги игры для участника. Запуск 0 или не указан — отдаём последние
+ * опубликованные: участник спрашивает итоги, ещё не зная номера запуска.
  */
 function readResults(requestedRound) {
   var sheet = getSheet(SHEET_RESULTS, RESULTS_COLUMNS);
@@ -459,7 +459,7 @@ function upsertParticipant(participant) {
           [
             participant.login,
             participant.round,
-            // Новый раунд обнуляет отсчёт, в текущем — фиксируем первое значение.
+            // Новый запуск обнуляет отсчёт, в текущем — фиксируем первое значение.
             sameRound ? values[r][2] || participant.startedAt : participant.startedAt,
             participant.lastSeenAt || new Date().toISOString(),
             sameRound ? participant.finishedAt || values[r][4] || '' : participant.finishedAt || '',

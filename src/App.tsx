@@ -35,7 +35,7 @@ export const App: React.FC = () => {
    * до тех пор, пока не введён новый логин.
    */
   function logout() {
-    // Данные участника остаются в localStorage: случайный выход не должен стирать раунд.
+    // Данные участника остаются в localStorage: случайный выход не должен стирать прогресс.
     storage.setSession(null);
     setSession(null);
   }

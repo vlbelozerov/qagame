@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 
 /**
  * Проверка разбора находок: код эталонного дефекта проставляется вручную и попадает
- * и в покрытие, и в итоги раунда — даже если авторазбор текст не распознал.
+ * и в покрытие, и в итоги игры — даже если авторазбор текст не распознал.
  *
  * Запуск:
  *   npm run build && npx vite preview --port 4176 &
@@ -119,7 +119,7 @@ ok('покрытие считает ручные коды', reference.includes('
 await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 
-// --- Итоги раунда: 2 найдено, 37 не найдено ---
+// --- Итоги игры: 2 найдено, 37 не найдено ---
 await p.getByTestId('open-report').click();
 await p.waitForTimeout(600);
 const reportText = await p.locator('[role="dialog"]').innerText();

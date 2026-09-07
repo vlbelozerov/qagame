@@ -10,7 +10,7 @@ import {
 } from '@/lib/types';
 
 /**
- * Личные итоги раунда: то, чем участник хвастается в чате.
+ * Личные итоги игры: то, чем участник хвастается в чате.
  *
  * Данные приходят готовыми от организатора — участник ничего не пересчитывает.
  * Сам по себе экран не появляется: пока итоги не опубликованы, его нет вовсе.
@@ -18,10 +18,10 @@ import {
 
 const MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
-export const RoundResults: React.FC<{
+export const GameResults: React.FC<{
   results: PublishedResults;
   login: string;
-  /** Собственные находки участника в этом раунде — с вердиктами организатора. */
+  /** Собственные находки участника — с вердиктами организатора. */
   reports: BugReport[];
 }> = ({ results, login, reports }) => {
   const [copied, setCopied] = useState(false);
@@ -48,7 +48,7 @@ export const RoundResults: React.FC<{
 
   const summaryText = useMemo(() => {
     const lines = [
-      `Итоги раунда ${results.round}${results.title ? `: ${results.title}` : ''}`,
+      `Итоги игры${results.title ? `: ${results.title}` : ''}`,
       me
         ? `${login} — ${me.place} место из ${results.standings.length}, ${plural(me.score, 'балл', 'балла', 'баллов')}`
         : `${login} — вне зачёта`,
@@ -69,12 +69,11 @@ export const RoundResults: React.FC<{
   }
 
   return (
-    <div className="space-y-4" data-testid="round-results">
+    <div className="space-y-4" data-testid="game-results">
       {/* --- Главное: место и баллы --- */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-orange-500 to-rose-500 p-6 text-white shadow-lg">
         <p className="text-sm font-medium uppercase tracking-wide text-white/80">
-          Итоги раунда {results.round}
-          {results.title ? ` · ${results.title}` : ''}
+          Итоги игры{results.title ? ` · ${results.title}` : ''}
         </p>
 
         {me ? (
@@ -100,7 +99,7 @@ export const RoundResults: React.FC<{
           </div>
         ) : (
           <p className="mt-3 text-lg font-semibold">
-            В этом раунде вас нет в зачёте — находок не поступало.
+            Вас нет в зачёте — находок от вас не поступало.
           </p>
         )}
       </div>
@@ -160,7 +159,7 @@ export const RoundResults: React.FC<{
       <div>
         <h3 className="mb-2 font-semibold">Ваши находки — что засчитали</h3>
         {myReports.length === 0 ? (
-          <Alert tone="info">В этом раунде вы не завели ни одного дефекта.</Alert>
+          <Alert tone="info">Вы не завели ни одного дефекта.</Alert>
         ) : (
           <div className="space-y-2">
             {myReports.map((r) => (
@@ -197,7 +196,7 @@ export const RoundResults: React.FC<{
       <div>
         <h3 className="mb-2 flex items-center gap-2 font-semibold">
           <Trophy className="h-4 w-4 text-orange-600" />
-          Таблица раунда
+          Таблица результатов
         </h3>
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-sm">

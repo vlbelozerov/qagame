@@ -5,7 +5,7 @@ export type ValidationStatus = 'pending' | 'accepted' | 'rejected' | 'duplicate'
 export interface BugReport {
   /** Стабильный id, генерируется на клиенте — нужен для идемпотентной отправки. */
   id: string;
-  /** Номер раунда, в котором заведён дефект. */
+  /** Номер запуска игры, в котором заведён дефект. Игра одна, но запусков может быть несколько. */
   round: number;
   /** Корпоративный логин участника. */
   login: string;
@@ -17,7 +17,7 @@ export interface BugReport {
   area: Area;
   /** Время создания на клиенте, ISO. */
   createdAt: string;
-  /** Секунды от старта раунда участника до момента создания репорта. */
+  /** Секунды от старта игры до момента создания репорта. */
   elapsedSec: number;
   /** Проставляется админом. */
   status: ValidationStatus;
@@ -37,9 +37,9 @@ export interface BugReport {
 
 export interface Participant {
   login: string;
-  /** Раунд, в котором участник играет. */
+  /** Номер запуска игры, в котором участник играет. */
   round: number;
-  /** Начало раунда, ISO. */
+  /** Начало игры для участника, ISO. */
   startedAt: string;
   /** Последняя активность, ISO. */
   lastSeenAt: string;
@@ -60,24 +60,29 @@ export interface SessionState {
 }
 
 /**
- * Состояние конкурса. В онлайн-режиме живёт в Google-таблице и общее для всех;
+ * Состояние игры. В онлайн-режиме живёт в Google-таблице и общее для всех;
  * в офлайне — в localStorage браузера организатора.
+ *
+ * Игра одна и проходит в три состояния: не началась → идёт → завершена. Счётчик
+ * `number` остаётся техническим: он растёт при повторном запуске и не даёт смешать
+ * находки прежней игры с новыми. Участнику номер не показывается.
  */
-export interface RoundState {
-  /** Номер раунда; 0 — конкурс ещё не начинался. */
+export interface GameState {
+  /** Номер запуска; 0 — игра ещё ни разу не запускалась. */
   number: number;
   status: 'idle' | 'running' | 'finished';
-  /** Название раунда, показывается участникам. */
+  /** Название игры, показывается участникам. Необязательно. */
   title: string;
-  /** Начало раунда, ISO. */
+  /** Начало игры, ISO. */
   startedAt: string;
-  /** Автоматическое окончание, ISO. Пусто — раунд без таймера. */
+  /** Автоматическое окончание, ISO. Пусто — игра без таймера. */
   endsAt: string;
-  /** Фактическое закрытие раунда организатором, ISO. */
+  /** Фактическое закрытие игры организатором, ISO. */
   finishedAt: string;
 }
 
-export const EMPTY_ROUND: RoundState = {
+
+export const EMPTY_GAME: GameState = {
   number: 0,
   status: 'idle',
   title: '',
@@ -86,10 +91,10 @@ export const EMPTY_ROUND: RoundState = {
   finishedAt: '',
 };
 
-export const ROUND_STATUS_LABELS: Record<RoundState['status'], string> = {
-  idle: 'Раунд не начался',
-  running: 'Раунд идёт',
-  finished: 'Раунд завершён',
+export const GAME_STATUS_LABELS: Record<GameState['status'], string> = {
+  idle: 'Игра ещё не началась',
+  running: 'Игра идёт',
+  finished: 'Игра завершена',
 };
 
 export interface SyncPayload {
@@ -100,7 +105,7 @@ export interface SyncPayload {
 export interface AdminSnapshot {
   participants: Participant[];
   reports: BugReport[];
-  round: RoundState;
+  round: GameState;
 }
 
 export interface Nomination {
@@ -119,7 +124,7 @@ export interface Nomination {
   winnerLogins: string[];
 }
 
-/** Строка турнирной таблицы по итогам раунда. */
+/** Строка турнирной таблицы по итогам игры. */
 export interface StandingRow {
   place: number;
   login: string;
@@ -130,12 +135,12 @@ export interface StandingRow {
   total: number;
   /** Находки, которые не повторил больше никто. */
   unique: number;
-  /** Секунды от старта раунда до первой засчитанной находки; -1 — засчитанных нет. */
+  /** Секунды от старта игры до первой засчитанной находки; -1 — засчитанных нет. */
   firstAcceptedSec: number;
 }
 
 /**
- * Итоги раунда, опубликованные организатором.
+ * Итоги игры, опубликованные организатором.
  *
  * Считаются в админке (только там есть эталонный список) и складываются на сервер
  * целиком: участник забирает готовый результат одним запросом и не может собрать
@@ -143,7 +148,7 @@ export interface StandingRow {
  */
 export interface PublishedResults {
   round: number;
-  /** Название раунда на момент публикации. */
+  /** Название игры на момент публикации. */
   title: string;
   publishedAt: string;
   participants: number;

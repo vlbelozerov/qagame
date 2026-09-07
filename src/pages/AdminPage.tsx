@@ -23,17 +23,17 @@ import { storage } from '@/lib/storage';
 import {
   decodeSnapshot,
   fetchSnapshot,
-  finishRound as finishRoundRequest,
+  finishGame as finishRoundRequest,
   isOnlineMode,
   publishResults,
   pushVerdict,
   resetCompetition,
-  startRound as startRoundRequest,
+  startGame as startRoundRequest,
 } from '@/lib/sync';
 import {
   AREA_LABELS,
-  EMPTY_ROUND,
-  ROUND_STATUS_LABELS,
+  EMPTY_GAME,
+  GAME_STATUS_LABELS,
   SEVERITY_LABELS,
   SEVERITY_POINTS,
   SEVERITY_STYLES,
@@ -42,7 +42,7 @@ import {
   type Area,
   type BugReport,
   type Participant,
-  type RoundState,
+  type GameState,
   type ValidationStatus,
 } from '@/lib/types';
 import type { KnownBug } from '@/lib/knownBugs';
@@ -55,11 +55,11 @@ import {
 } from '@/lib/matcher';
 import { mentionsHoneypot } from '@/lib/honeypot';
 import {
-  buildRoundReport,
+  buildGameReport,
   reportToText,
   toPublishedResults,
-  type RoundReport,
-} from '@/lib/roundReport';
+  type GameReport,
+} from '@/lib/gameReport';
 import { formatDuration, plural } from '@/lib/format';
 
 type Filter = 'all' | ValidationStatus;
@@ -91,14 +91,14 @@ export const AdminPage: React.FC<{
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('any');
   const [analyzing, setAnalyzing] = useState(false);
   const [autoNote, setAutoNote] = useState('');
-  const [round, setRound] = useState<RoundState>(() =>
-    isOnlineMode() ? EMPTY_ROUND : storage.getRound(),
+  const [game, setGame] = useState<GameState>(() =>
+    isOnlineMode() ? EMPTY_GAME : storage.getGame(),
   );
-  const [roundTitle, setRoundTitle] = useState('');
-  const [roundMinutes, setRoundMinutes] = useState(config.roundMinutes);
-  const [roundBusy, setRoundBusy] = useState(false);
-  const [roundFilter, setRoundFilter] = useState<number | 'all'>('all');
-  const [report, setReport] = useState<RoundReport | null>(null);
+  const [gameTitle, setRoundTitle] = useState('');
+  const [gameMinutes, setRoundMinutes] = useState(config.gameMinutes);
+  const [gameBusy, setRoundBusy] = useState(false);
+  const [runFilter, setRoundFilter] = useState<number | 'all'>('all');
+  const [report, setReport] = useState<GameReport | null>(null);
   const [reportCopied, setReportCopied] = useState(false);
   /** Публикация итогов участникам: пусто — ещё не публиковали в этот заход. */
   const [publishState, setPublishState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
@@ -106,7 +106,7 @@ export const AdminPage: React.FC<{
 
   const load = useCallback(async () => {
     if (!isOnlineMode()) {
-      // Офлайн: показываем ранее импортированные результаты и раунд участника,
+      // Офлайн: показываем ранее импортированные результаты и состояние игры участника,
       // который играет в этом же браузере, — так админку видно без обмена кодами.
       const saved = storage.getAdminData();
       const localPlayer = storage.getParticipant();
@@ -136,7 +136,7 @@ export const AdminPage: React.FC<{
       const snapshot = await fetchSnapshot(adminName, adminSecret);
       setParticipants(snapshot.participants);
       setReports(snapshot.reports);
-      setRound(snapshot.round);
+      setGame(snapshot.round);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить данные');
     } finally {
@@ -164,10 +164,10 @@ export const AdminPage: React.FC<{
   }, [participants, reports]);
 
   /**
-   * Управление раундом. В онлайне состояние живёт в таблице и доходит до всех участников;
+   * Управление игрой. В онлайне состояние живёт в таблице и доходит до всех участников;
    * в офлайне пишем в localStorage — оно действует только в этом браузере.
    */
-  async function applyRound(action: 'start' | 'finish' | 'reset') {
+  async function applyGame(action: 'start' | 'finish' | 'reset') {
     setRoundBusy(true);
     setError('');
     try {
@@ -175,13 +175,13 @@ export const AdminPage: React.FC<{
         const next =
           action === 'start'
             ? await startRoundRequest(adminName, adminSecret, {
-                title: roundTitle.trim(),
-                durationMinutes: roundMinutes,
+                title: gameTitle.trim(),
+                durationMinutes: gameMinutes,
               })
             : action === 'finish'
               ? await finishRoundRequest(adminName, adminSecret)
               : await resetCompetition(adminName, adminSecret);
-        setRound(next);
+        setGame(next);
         if (action === 'reset') {
           setParticipants([]);
           setReports([]);
@@ -191,27 +191,27 @@ export const AdminPage: React.FC<{
       } else {
         const now = new Date();
         if (action === 'start') {
-          const next: RoundState = {
-            number: round.number + 1,
+          const next: GameState = {
+            number: game.number + 1,
             status: 'running',
-            title: roundTitle.trim(),
+            title: gameTitle.trim(),
             startedAt: now.toISOString(),
             endsAt:
-              roundMinutes > 0
-                ? new Date(now.getTime() + roundMinutes * 60_000).toISOString()
+              gameMinutes > 0
+                ? new Date(now.getTime() + gameMinutes * 60_000).toISOString()
                 : '',
             finishedAt: '',
           };
-          storage.setRound(next);
-          setRound(next);
+          storage.setGame(next);
+          setGame(next);
         } else if (action === 'finish') {
-          const next: RoundState = { ...round, status: 'finished', finishedAt: now.toISOString() };
-          storage.setRound(next);
-          setRound(next);
+          const next: GameState = { ...game, status: 'finished', finishedAt: now.toISOString() };
+          storage.setGame(next);
+          setGame(next);
         } else {
           storage.clearAll();
-          storage.setRound(EMPTY_ROUND);
-          setRound(EMPTY_ROUND);
+          storage.setGame(EMPTY_GAME);
+          setGame(EMPTY_GAME);
           setParticipants([]);
           setReports([]);
           setMatches(new Map());
@@ -219,13 +219,13 @@ export const AdminPage: React.FC<{
       }
       setRoundTitle('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось изменить состояние раунда');
+      setError(err instanceof Error ? err.message : 'Не удалось изменить состояние игры');
     } finally {
       setRoundBusy(false);
     }
   }
 
-  /** Итоги раунда: номинации считаются по принятым дефектам текущего разбора. */
+  /** Итоги игры: номинации считаются по принятым дефектам текущего разбора. */
   async function openReport() {
     const bugs = await loadKnownBugs();
     let current = matches;
@@ -234,8 +234,8 @@ export const AdminPage: React.FC<{
       current = matchAll(reports, bugs);
       setMatches(current);
     }
-    const target = roundFilter === 'all' ? round.number || 1 : roundFilter;
-    setReport(buildRoundReport(target, reports, current, bugs, participants));
+    const target = runFilter === 'all' ? game.number || 1 : runFilter;
+    setReport(buildGameReport(target, reports, current, bugs, participants));
     setReportCopied(false);
     setPublishState('idle');
     setPublishError('');
@@ -250,7 +250,7 @@ export const AdminPage: React.FC<{
     setPublishState('busy');
     setPublishError('');
     try {
-      const payload = toPublishedResults(report, round);
+      const payload = toPublishedResults(report, game);
       if (isOnlineMode()) await publishResults(adminName, adminSecret, payload);
       else storage.setResults(payload);
       setPublishState('done');
@@ -262,9 +262,9 @@ export const AdminPage: React.FC<{
 
   function confirmReset() {
     const ok = window.confirm(
-      'Начать новый конкурс? Все участники, дефекты и вердикты будут удалены безвозвратно, нумерация раундов обнулится.',
+      'Начать новый конкурс? Все участники, дефекты и вердикты будут удалены безвозвратно, а игра вернётся в состояние «не началась».',
     );
-    if (ok) void applyRound('reset');
+    if (ok) void applyGame('reset');
   }
 
   async function loadKnownBugs(): Promise<KnownBug[]> {
@@ -424,7 +424,7 @@ export const AdminPage: React.FC<{
       reports
         .filter((r) => (filter === 'all' ? true : r.status === filter))
         .filter((r) => (selectedLogin ? r.login === selectedLogin : true))
-        .filter((r) => (roundFilter === 'all' ? true : (r.round ?? 0) === roundFilter))
+        .filter((r) => (runFilter === 'all' ? true : (r.round ?? 0) === runFilter))
         .filter((r) => {
           if (matchFilter === 'any') return true;
           const m = matches.get(r.id);
@@ -432,7 +432,7 @@ export const AdminPage: React.FC<{
           return (m?.confidence ?? 'none') === matchFilter;
         })
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [reports, filter, selectedLogin, matchFilter, matches, roundFilter],
+    [reports, filter, selectedLogin, matchFilter, matches, runFilter],
   );
 
   const bugByCode = useMemo(() => new Map(knownBugs.map((b) => [b.code, b])), [knownBugs]);
@@ -451,7 +451,7 @@ export const AdminPage: React.FC<{
     [reports],
   );
 
-  const availableRounds = useMemo(
+  const availableRuns = useMemo(
     () => [...new Set(reports.map((r) => r.round ?? 0))].sort((a, b) => a - b),
     [reports],
   );
@@ -530,7 +530,7 @@ export const AdminPage: React.FC<{
             <p className="text-xs text-slate-500">
               {isOnlineMode()
                 ? 'Данные с сервера конкурса'
-                : 'Офлайн-режим: раунд в этом браузере и импортированные коды'}
+                : 'Офлайн-режим: игра в этом браузере и импортированные коды'}
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -551,7 +551,7 @@ export const AdminPage: React.FC<{
               data-testid="open-report"
             >
               <PartyPopper className="h-4 w-4" />
-              Итоги раунда
+              Итоги игры
             </Button>
             <Button size="sm" variant="secondary" onClick={openReference}>
               <BookOpen className="h-4 w-4" />
@@ -593,36 +593,37 @@ export const AdminPage: React.FC<{
         </div>
 
 
-        <Card className={cn(round.status === 'running' && 'border-emerald-300')}>
+        <Card className={cn(game.status === 'running' && 'border-emerald-300')}>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold">Управление раундом</h3>
+              <h3 className="font-semibold">Управление игрой</h3>
               <Badge
                 className={cn(
-                  round.status === 'running'
+                  game.status === 'running'
                     ? 'border-emerald-200 bg-emerald-100 text-emerald-800'
-                    : round.status === 'finished'
+                    : game.status === 'finished'
                       ? 'border-rose-200 bg-rose-100 text-rose-800'
                       : '',
                 )}
-                data-testid="admin-round-status"
+                data-testid="admin-game-status"
               >
-                {ROUND_STATUS_LABELS[round.status]}
-                {round.number > 0 && ` · раунд ${round.number}`}
+                {GAME_STATUS_LABELS[game.status]}
+                {/* Номер запуска нужен только после перезапуска: игра-то одна. */}
+                {game.number > 1 && ` · запуск ${game.number}`}
               </Badge>
-              {round.title && <span className="text-sm text-slate-500">{round.title}</span>}
+              {game.title && <span className="text-sm text-slate-500">{game.title}</span>}
             </div>
 
-            {round.status !== 'running' ? (
+            {game.status !== 'running' ? (
               <div className="flex flex-wrap items-end gap-2">
                 <div className="min-w-[220px] flex-1">
-                  <label className="label">Название раунда — необязательно</label>
+                  <label className="label">Название игры — необязательно</label>
                   <input
                     className="field"
-                    value={roundTitle}
+                    value={gameTitle}
                     onChange={(e) => setRoundTitle(e.target.value)}
                     placeholder="Например: Финал, поток 2"
-                    data-testid="round-title"
+                    data-testid="game-title"
                   />
                 </div>
                 <div>
@@ -631,46 +632,46 @@ export const AdminPage: React.FC<{
                     type="number"
                     min={0}
                     className="field w-32"
-                    value={roundMinutes}
+                    value={gameMinutes}
                     onChange={(e) => setRoundMinutes(Math.max(0, Number(e.target.value) || 0))}
-                    data-testid="round-minutes"
+                    data-testid="game-minutes"
                   />
                 </div>
-                <Button onClick={() => void applyRound('start')} disabled={roundBusy} data-testid="start-round">
-                  {roundBusy ? <Spinner /> : <Play className="h-4 w-4" />}
-                  Начать раунд {round.number + 1}
+                <Button onClick={() => void applyGame('start')} disabled={gameBusy} data-testid="start-game">
+                  {gameBusy ? <Spinner /> : <Play className="h-4 w-4" />}
+                  {game.number === 0 ? 'Начать игру' : 'Начать заново'}
                 </Button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm text-slate-600">
-                  Начат в {new Date(round.startedAt).toLocaleTimeString('ru-RU')}
-                  {round.endsAt
-                    ? ` · автозавершение в ${new Date(round.endsAt).toLocaleTimeString('ru-RU')}`
+                  Начат в {new Date(game.startedAt).toLocaleTimeString('ru-RU')}
+                  {game.endsAt
+                    ? ` · автозавершение в ${new Date(game.endsAt).toLocaleTimeString('ru-RU')}`
                     : ' · без таймера, закроется вручную'}
                   .
                 </p>
                 <Button
                   variant="danger"
-                  onClick={() => void applyRound('finish')}
-                  disabled={roundBusy}
-                  data-testid="finish-round-admin"
+                  onClick={() => void applyGame('finish')}
+                  disabled={gameBusy}
+                  data-testid="finish-game-admin"
                 >
-                  {roundBusy ? <Spinner /> : <Square className="h-4 w-4" />}
-                  Завершить раунд
+                  {gameBusy ? <Spinner /> : <Square className="h-4 w-4" />}
+                  Завершить игру
                 </Button>
               </div>
             )}
 
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-              <Button variant="secondary" size="sm" onClick={confirmReset} disabled={roundBusy} data-testid="reset-competition">
+              <Button variant="secondary" size="sm" onClick={confirmReset} disabled={gameBusy} data-testid="reset-competition">
                 <RotateCcw className="h-4 w-4" />
                 Новый конкурс — удалить все данные
               </Button>
               <span className="text-xs text-slate-500">
                 {isOnlineMode()
-                  ? 'Состояние раунда общее: участники увидят изменение в течение 10 секунд.'
-                  : 'Офлайн-режим: раунд управляется только в этом браузере — у других участников состояние своё.'}
+                  ? 'Состояние игры общее: участники увидят изменение в течение 10 секунд.'
+                  : 'Офлайн-режим: игра управляется только в этом браузере — у других участников состояние своё.'}
               </span>
             </div>
           </CardContent>
@@ -792,7 +793,7 @@ export const AdminPage: React.FC<{
                             {p?.peeked ? (
                               <Badge
                                 className="gap-1 border-amber-200 bg-amber-100 text-amber-800"
-                                title="Витрину открывали до старта раунда: снят оверлей или были клики сквозь него"
+                                title="Витрину открывали до старта игры: снят оверлей или были клики сквозь него"
                                 data-testid={`peeked-${row.login}`}
                               >
                                 <Eye className="h-3 w-3" />
@@ -842,21 +843,21 @@ export const AdminPage: React.FC<{
               </Badge>
             </button>
           ))}
-          {availableRounds.length > 1 && (
+          {availableRuns.length > 1 && (
             <>
               <span className="mx-1 h-4 w-px bg-slate-300" />
               <select
                 className="field w-auto py-1 text-xs"
-                value={String(roundFilter)}
+                value={String(runFilter)}
                 onChange={(e) =>
                   setRoundFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
                 }
-                data-testid="round-filter"
+                data-testid="game-filter"
               >
-                <option value="all">Все раунды</option>
-                {availableRounds.map((n) => (
+                <option value="all">Все запуски</option>
+                {availableRuns.map((n) => (
                   <option key={n} value={n}>
-                    Раунд {n}
+                    Запуск {n}
                   </option>
                 ))}
               </select>
@@ -939,7 +940,7 @@ export const AdminPage: React.FC<{
       <Modal
         open={report !== null}
         onClose={() => setReport(null)}
-        title={report ? `Итоги раунда ${report.round}` : 'Итоги раунда'}
+        title="Итоги игры"
         wide
       >
         {report && (
@@ -1086,7 +1087,7 @@ export const AdminPage: React.FC<{
           {knownBugs.length > 0 && (
             <p className="text-sm text-slate-500">
               Всего заложено дефектов: {knownBugs.length}. Список нужен только для валидации — не
-              показывайте его участникам до конца раунда.
+              показывайте его участникам до конца игры.
             </p>
           )}
           {analysis && (
@@ -1231,7 +1232,7 @@ const ReportRow: React.FC<{
             </p>
             <p className="text-amber-800">
               Такого промокода в магазине нет — он показывается только на закрытой витрине.
-              Значит, участник снимал оверлей до старта раунда.
+              Значит, участник снимал оверлей до старта игры.
             </p>
           </div>
         )}
@@ -1284,7 +1285,7 @@ const ReportRow: React.FC<{
               <p className="mt-1 text-xs text-slate-500">
                 {selectedBug
                   ? `${SEVERITY_LABELS[selectedBug.severity]} · ${plural(SEVERITY_POINTS[selectedBug.severity], 'балл', 'балла', 'баллов')} · ${selectedBug.hint}`
-                  : 'Без выбора находка не попадёт в покрытие и итоги раунда — баллы проставьте вручную.'}
+                  : 'Без выбора находка не попадёт в покрытие и итоги игры — баллы проставьте вручную.'}
               </p>
               {match?.code && match.code !== selectedCode && (
                 <button

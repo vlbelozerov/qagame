@@ -32,7 +32,7 @@ const round = {
   finishedAt: '',
 };
 
-/** Подменяем Apps Script: раунд идёт, витрина открыта, ничего никуда не уходит. */
+/** Подменяем Apps Script: игра идёт, витрина открыта, ничего никуда не уходит. */
 const server = async (route) => {
   const body = JSON.parse(route.request().postData() || '{}');
   const reply = (r) =>

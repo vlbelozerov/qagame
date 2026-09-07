@@ -20,19 +20,19 @@ import { config } from '@/config';
 import { Alert, Badge, Button, Modal, Spinner, cn } from '@/components/ui';
 import { formatDuration } from '@/lib/format';
 import { newId, storage } from '@/lib/storage';
-import { encodeSnapshot, fetchResults, fetchRound, isOnlineMode, pushProgress } from '@/lib/sync';
+import { encodeSnapshot, fetchResults, fetchGame, isOnlineMode, pushProgress } from '@/lib/sync';
 import {
-  ROUND_STATUS_LABELS,
+  GAME_STATUS_LABELS,
   STATUS_LABELS,
   STATUS_STYLES,
   type Area,
   type BugReport,
   type Participant,
   type PublishedResults,
-  type RoundState,
+  type GameState,
   type Severity,
 } from '@/lib/types';
-import { RoundResults } from '@/components/RoundResults';
+import { GameResults } from '@/components/GameResults';
 import { ShoppingCartApp } from '@/sandbox/ShoppingCart';
 
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
@@ -74,8 +74,8 @@ export const PlayerPage: React.FC<{
   const [quickError, setQuickError] = useState('');
   const [justAdded, setJustAdded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [round, setRound] = useState<RoundState>(() => storage.getRound());
-  /** Итоги раунда, опубликованные организатором. null — их ещё нет. */
+  const [game, setGame] = useState<GameState>(() => storage.getGame());
+  /** Итоги игры, опубликованные организатором. null — их ещё нет. */
   const [results, setResults] = useState<PublishedResults | null>(() => storage.getResults());
 
   // Держим свежие данные в ref, чтобы интервал синхронизации не пересоздавался на каждый ввод.
@@ -89,7 +89,7 @@ export const PlayerPage: React.FC<{
     return () => clearInterval(t);
   }, []);
 
-  // Состояние раунда: в онлайне спрашиваем сервер, в офлайне читаем localStorage,
+  // Состояние игры: в онлайне спрашиваем сервер, в офлайне читаем localStorage,
   // куда его пишет админка, открытая в этом же браузере.
   // Актуальные итоги для колбэков опроса: перезапускать интервал из-за них незачем.
   const resultsRef = useRef(results);
@@ -103,10 +103,10 @@ export const PlayerPage: React.FC<{
   useEffect(() => {
     const poll = () => {
       if (isOnlineMode()) {
-        fetchRound()
+        fetchGame()
           .then((next) => {
-            setRound(next);
-            // Итоги спрашиваем только после закрытия раунда и только пока их нет:
+            setGame(next);
+            // Итоги спрашиваем только после завершения игры и только пока их нет:
             // опубликованные, они уже не меняются, а лишний запрос — это квота.
             if (
               next.status === 'finished' &&
@@ -122,7 +122,7 @@ export const PlayerPage: React.FC<{
           })
           .catch(() => undefined);
       } else {
-        setRound(storage.getRound());
+        setGame(storage.getGame());
         const saved = storage.getResults();
         if (saved && saved.round !== resultsRef.current?.round) setResults(saved);
       }
@@ -133,20 +133,20 @@ export const PlayerPage: React.FC<{
       return () => clearInterval(offline);
     }
     // Пока ждём старта, спрашиваем сервер чаще: каждая лишняя секунда до открытия
-    // витрины — это фора для тех, кому ответ пришёл раньше. Во время раунда частить
+    // витрины — это фора для тех, кому ответ пришёл раньше. Во время игры частить
     // незачем, а в скрытой вкладке не опрашиваем вовсе, чтобы не жечь квоту.
     let timer = 0;
     const schedule = () => {
       const hidden = document.visibilityState === 'hidden';
       // Чаще всего опрашиваем до старта: каждая лишняя секунда там — фора соседу.
-      // После закрытия раунда ждём только публикации итогов — это не гонка.
+      // После завершения игры ждём только публикации итогов — это не гонка.
       const delay = hidden
-        ? config.roundPollHiddenMs
-        : round.status === 'idle'
-          ? config.roundPollWaitingMs
-          : round.status === 'running'
-            ? config.roundPollRunningMs
-            : config.roundPollHiddenMs;
+        ? config.pollHiddenMs
+        : game.status === 'idle'
+          ? config.pollWaitingMs
+          : game.status === 'running'
+            ? config.pollRunningMs
+            : config.pollHiddenMs;
       timer = window.setTimeout(() => {
         poll();
         schedule();
@@ -164,51 +164,55 @@ export const PlayerPage: React.FC<{
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [round.status, applyResults]);
+  }, [game.status, applyResults]);
 
-  // Отсчёт идёт от старта раунда, а не от входа участника: у всех одинаковое время.
-  const roundStartMs = round.startedAt ? new Date(round.startedAt).getTime() : Date.now();
-  const elapsedSec = round.status === 'idle' ? 0 : Math.max(0, Math.floor((now - roundStartMs) / 1000));
-  const endsMs = round.endsAt ? new Date(round.endsAt).getTime() : 0;
+  // Отсчёт идёт от старта игры, а не от входа участника: у всех одинаковое время.
+  const gameStartMs = game.startedAt ? new Date(game.startedAt).getTime() : Date.now();
+  const elapsedSec = game.status === 'idle' ? 0 : Math.max(0, Math.floor((now - gameStartMs) / 1000));
+  const endsMs = game.endsAt ? new Date(game.endsAt).getTime() : 0;
   const remainingSec = endsMs ? Math.floor((endsMs - now) / 1000) : null;
   const timeIsUp = remainingSec !== null && remainingSec <= 0;
 
-  /** Дефекты принимаются, только пока раунд идёт и время не вышло. */
-  const roundOpen = round.status === 'running' && !timeIsUp && !participant.finishedAt;
+  /** Дефекты принимаются, только пока игра идёт и время не вышло. */
+  const gameOpen = game.status === 'running' && !timeIsUp && !participant.finishedAt;
 
+  /**
+   * Причина блокировки — без повтора самого статуса: он выводится рядом отдельной
+   * строкой и в заглушке, и в плашке над витриной.
+   */
   const lockReason = participant.finishedAt
     ? 'Вы сдали результат — приём ваших дефектов закрыт.'
-    : round.status === 'idle'
-      ? 'Раунд ещё не начался. Витрина откроется у всех одновременно со стартом.'
-      : round.status === 'finished'
-        ? 'Раунд завершён организатором. Приём дефектов закрыт.'
+    : game.status === 'idle'
+      ? 'Витрина откроется у всех одновременно со стартом.'
+      : game.status === 'finished'
+        ? 'Приём дефектов закрыт — дождитесь итогов.'
         : timeIsUp
-          ? 'Время раунда вышло. Приём дефектов закрыт.'
+          ? 'Время вышло, приём дефектов закрыт — дождитесь итогов.'
           : '';
 
-  // Новый раунд обнуляет прогресс участника: прошлые находки уже у организатора.
+  // Новый запуск игры обнуляет прогресс участника: прошлые находки уже у организатора.
   useEffect(() => {
-    if (round.status !== 'running' || round.number === 0) return;
-    if (participant.round === round.number) return;
+    if (game.status !== 'running' || game.number === 0) return;
+    if (participant.round === game.number) return;
     setParticipant((prev) => ({
       login,
-      round: round.number,
-      startedAt: round.startedAt || new Date().toISOString(),
+      round: game.number,
+      startedAt: game.startedAt || new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
       finishedAt: '',
-      // Отметку о подглядывании не сбрасываем: она относится к участнику, а не к раунду.
+      // Отметку о подглядывании не сбрасываем: она относится к участнику, а не к игре.
       peeked: prev.peeked,
     }));
-    // Репорты прошлых раундов не удаляем: в офлайн-режиме организатор ещё не забрал
-    // их кодом результата. Показываем только текущий раунд, храним всё.
+    // Репорты прошлых запусков не удаляем: в офлайн-режиме организатор ещё не забрал
+    // их кодом результата. Показываем только текущую игру, храним всё.
     setFinishOpen(false);
-  }, [round, participant.round, login]);
+  }, [game, participant.round, login]);
 
   const storeRef = useRef<HTMLDivElement | null>(null);
-  // Актуальное состояние раунда для колбэков наблюдателя: они срабатывают асинхронно
-  // и могут выполниться уже после того, как раунд открылся.
-  const roundOpenRef = useRef(roundOpen);
-  roundOpenRef.current = roundOpen;
+  // Актуальное состояние игры для колбэков наблюдателя: они срабатывают асинхронно
+  // и могут выполниться уже после того, как витрина открылась.
+  const gameOpenRef = useRef(gameOpen);
+  gameOpenRef.current = gameOpen;
 
   /**
    * Оверлей — защита на честность: класс с размытием снимается из инструментов
@@ -216,12 +220,12 @@ export const PlayerPage: React.FC<{
    * зафиксировать сам факт и показать организатору.
    */
   const markPeeked = useCallback(() => {
-    if (roundOpenRef.current) return;
+    if (gameOpenRef.current) return;
     setParticipant((prev) => (prev.peeked ? prev : { ...prev, peeked: true }));
   }, []);
 
   useEffect(() => {
-    if (roundOpen) return;
+    if (gameOpen) return;
     const node = storeRef.current;
     if (!node) return;
 
@@ -235,8 +239,8 @@ export const PlayerPage: React.FC<{
     node.addEventListener('pointerdown', onInteract, true);
 
     const observer = new MutationObserver((records) => {
-      // При старте раунда React сам убирает размытие и заглушку — это не подглядывание.
-      if (roundOpenRef.current) return;
+      // При старте игры React сам убирает размытие и заглушку — это не подглядывание.
+      if (gameOpenRef.current) return;
       for (const record of records) {
         if (record.type === 'attributes' && record.target === node.firstElementChild) {
           const cls = (record.target as HTMLElement).className;
@@ -260,7 +264,7 @@ export const PlayerPage: React.FC<{
       node.removeEventListener('pointerdown', onInteract, true);
       observer.disconnect();
     };
-  }, [roundOpen, markPeeked]);
+  }, [gameOpen, markPeeked]);
 
   const sync = useCallback(async (silent: boolean) => {
     if (!isOnlineMode()) return;
@@ -274,8 +278,8 @@ export const PlayerPage: React.FC<{
       const result = await pushProgress(snapshot, latest.current.reports, deleted);
       storage.addSyncedIds(result.accepted);
       if (deleted.length > 0) storage.clearDeletedIds();
-      // Сервер возвращает актуальный раунд — узнаём о старте и закрытии без лишнего запроса.
-      if (result.round) setRound(result.round);
+      // Сервер возвращает состояние игры — узнаём о старте и финише без лишнего запроса.
+      if (result.round) setGame(result.round);
       // И собственные строки участника со стороны сервера: вердикты организатора
       // (иначе всё висело бы «на проверке») плюс находки, которых нет локально, —
       // так список не пустеет в другом браузере и после очистки данных.
@@ -297,7 +301,7 @@ export const PlayerPage: React.FC<{
       setSyncState('ok');
       setSyncError(
         result.rejected && result.rejected.length > 0
-          ? `Сервер не принял дефектов: ${result.rejected.length} (заведены вне раунда)`
+          ? `Сервер не принял дефектов: ${result.rejected.length} (заведены вне игры)`
           : '',
       );
     } catch (err) {
@@ -329,15 +333,15 @@ export const PlayerPage: React.FC<{
   }, []);
 
   function addReport(title: string) {
-    // Страховка на случай, если раунд закрылся между отрисовкой и нажатием.
-    if (!roundOpen) {
+    // Страховка на случай, если игра завершилась между отрисовкой и нажатием.
+    if (!gameOpen) {
       setQuickError(lockReason || 'Приём дефектов закрыт');
       return;
     }
     const stamp = new Date().toISOString();
     const report: BugReport = {
       id: newId(),
-      round: round.number,
+      round: game.number,
       login,
       title,
       ...REPORT_DEFAULTS,
@@ -388,26 +392,26 @@ export const PlayerPage: React.FC<{
   function submitResult() {
     const finished = { ...participant, finishedAt: new Date().toISOString() };
     setParticipant(finished);
-    latest.current = { participant: finished, reports: roundReports };
+    latest.current = { participant: finished, reports: gameReports };
     setFinishOpen(true);
     void sync(false);
   }
 
-  /** Участник видит и сдаёт только находки текущего раунда. */
-  const roundReports = useMemo(
-    () => reports.filter((r) => r.round === round.number),
-    [reports, round.number],
+  /** Участник видит и сдаёт только находки текущего запуска игры. */
+  const gameReports = useMemo(
+    () => reports.filter((r) => r.round === game.number),
+    [reports, game.number],
   );
 
-  latest.current = { participant, reports: roundReports };
+  latest.current = { participant, reports: gameReports };
 
-  const stats = useMemo(() => ({ total: roundReports.length }), [roundReports]);
+  const stats = useMemo(() => ({ total: gameReports.length }), [gameReports]);
 
   /**
-   * Итоги показываем вместо витрины: раунд уже закрыт, магазин под размытием никому
+   * Итоги показываем вместо витрины: игра уже завершена, магазин под размытием никому
    * не нужен, а личный результат — то, ради чего участник возвращается на страницу.
    */
-  const showResults = results !== null && results.round === round.number && round.number > 0;
+  const showResults = results !== null && results.round === game.number && game.number > 0;
 
   return (
     <div className="min-h-screen">
@@ -427,21 +431,19 @@ export const PlayerPage: React.FC<{
             <Badge
               className={cn(
                 'gap-1',
-                roundOpen
+                gameOpen
                   ? 'border-emerald-200 bg-emerald-100 text-emerald-800'
                   : 'border-rose-200 bg-rose-100 text-rose-800',
               )}
-              title={round.title || 'Состояние раунда'}
-              data-testid="round-status"
+              title={game.title || 'Состояние игры'}
+              data-testid="game-status"
             >
-              {roundOpen ? <Clock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-              {round.status === 'idle'
-                ? 'раунд не начался'
-                : !roundOpen
+              {gameOpen ? <Clock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+              {game.status === 'idle'
+                ? 'игра не началась'
+                : !gameOpen
                   ? 'приём закрыт'
-                  : remainingSec === null
-                    ? `раунд ${round.number} · ${formatDuration(elapsedSec)}`
-                    : `раунд ${round.number} · ${formatDuration(remainingSec)}`}
+                  : `идёт игра · ${formatDuration(remainingSec === null ? elapsedSec : remainingSec)}`}
             </Badge>
 
             <SyncBadge state={syncState} error={syncError} onRetry={() => void sync(false)} />
@@ -460,8 +462,8 @@ export const PlayerPage: React.FC<{
             </Button>
 
             <Button size="sm" variant="secondary" onClick={submitResult}
-              disabled={!roundOpen}
-              data-testid="finish-round"
+              disabled={!gameOpen}
+              data-testid="finish-game"
             >
               <CheckCircle2 className="h-4 w-4" />
               Сдать результат
@@ -503,11 +505,11 @@ export const PlayerPage: React.FC<{
               <input
                 className="field pl-9"
                 placeholder={
-                  roundOpen
+                  gameOpen
                     ? 'Что сломалось? Опишите одной строкой и нажмите Enter'
                     : 'Приём дефектов закрыт'
                 }
-                disabled={!roundOpen}
+                disabled={!gameOpen}
                 value={quickTitle}
                 onChange={(e) => {
                   setQuickTitle(e.target.value);
@@ -517,7 +519,7 @@ export const PlayerPage: React.FC<{
               />
             </div>
 
-            <Button type="submit" size="md" disabled={!roundOpen} data-testid="quick-add">
+            <Button type="submit" size="md" disabled={!gameOpen} data-testid="quick-add">
               <Plus className="h-4 w-4" />
               Добавить
             </Button>
@@ -534,39 +536,39 @@ export const PlayerPage: React.FC<{
       </header>
 
       <main className="mx-auto max-w-[1600px] px-4 py-6">
-        {!roundOpen && !showResults && (
+        {!gameOpen && !showResults && (
           <div className="mb-4">
-            <Alert tone={round.status === 'idle' ? 'info' : 'error'}>
-              <span className="font-medium">{ROUND_STATUS_LABELS[round.status]}.</span> {lockReason}
-              {roundReports.length > 0 && ` Заведено дефектов: ${roundReports.length}.`}
+            <Alert tone={game.status === 'idle' ? 'info' : 'error'}>
+              <span className="font-medium">{GAME_STATUS_LABELS[game.status]}.</span> {lockReason}
+              {gameReports.length > 0 && ` Заведено дефектов: ${gameReports.length}.`}
             </Alert>
           </div>
         )}
-        {roundOpen && round.title && (
+        {gameOpen && game.title && (
           <div className="mb-4">
             <Alert tone="success">
-              Идёт раунд {round.number}: {round.title}
+              Идёт игра: {game.title}
             </Alert>
           </div>
         )}
 
         {showResults ? (
-          <RoundResults results={results} login={login} reports={roundReports} />
+          <GameResults results={results} login={login} reports={gameReports} />
         ) : (
         <div className="relative" ref={storeRef}>
           {/*
-            Пока раунд не идёт, витрина закрыта: иначе тот, кто вошёл раньше, успел бы
+            Пока игра не идёт, витрина закрыта: иначе тот, кто вошёл раньше, успел бы
             изучить магазин заранее. Компонент не размонтируем — так состояние корзины
             не мигает при открытии, а сам старт для всех наступает одновременно.
           */}
           <div
-            className={cn(!roundOpen && 'pointer-events-none select-none blur-[14px]')}
-            aria-hidden={!roundOpen}
+            className={cn(!gameOpen && 'pointer-events-none select-none blur-[14px]')}
+            aria-hidden={!gameOpen}
           >
-            <ShoppingCartApp preview={!roundOpen} />
+            <ShoppingCartApp preview={!gameOpen} />
           </div>
 
-          {!roundOpen && (
+          {!gameOpen && (
             <div
               className="absolute inset-0 z-20 flex items-start justify-center rounded-2xl bg-slate-900/60 p-6 backdrop-blur-md"
               data-testid="store-overlay"
@@ -575,12 +577,12 @@ export const PlayerPage: React.FC<{
                 <span
                   className={cn(
                     'mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl',
-                    round.status === 'idle'
+                    game.status === 'idle'
                       ? 'bg-orange-100 text-orange-600'
                       : 'bg-slate-100 text-slate-500',
                   )}
                 >
-                  {round.status === 'idle' ? (
+                  {game.status === 'idle' ? (
                     <Hourglass className="h-7 w-7" />
                   ) : (
                     <Lock className="h-7 w-7" />
@@ -588,35 +590,34 @@ export const PlayerPage: React.FC<{
                 </span>
 
                 <h2 className="text-lg font-semibold">
-                  {round.status === 'idle'
-                    ? 'Магазин откроется со стартом раунда'
+                  {game.status === 'idle'
+                    ? 'Магазин откроется со стартом игры'
                     : participant.finishedAt
                       ? 'Вы сдали результат'
-                      : 'Раунд завершён'}
+                      : 'Игра завершена'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  {round.status === 'idle'
+                  {game.status === 'idle'
                     ? 'Вы в игре — ждём остальных. Витрина закрыта, чтобы никто не изучил её заранее: у всех будет одинаковое время.'
                     : lockReason}
                 </p>
 
-                {round.status === 'idle' && (
+                {game.status === 'idle' && (
                   <p className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-500">
                     <Spinner className="h-4 w-4" />
                     Откроется автоматически, обновлять страницу не нужно
                   </p>
                 )}
 
-                {roundReports.length > 0 && (
+                {gameReports.length > 0 && (
                   <p className="mt-3 text-sm text-slate-600">
-                    Ваших находок в раунде: <b>{roundReports.length}</b> — их видно по кнопке
+                    Ваших находок: <b>{gameReports.length}</b> — их видно по кнопке
                     «Мои дефекты».
                   </p>
                 )}
 
                 <p className="mt-4 text-xs text-slate-400">
                   Вы вошли как {login}
-                  {round.number > 0 && ` · раунд ${round.number}`}
                 </p>
               </div>
             </div>
@@ -626,10 +627,10 @@ export const PlayerPage: React.FC<{
       </main>
 
       <BugListModal
-        canEdit={roundOpen}
+        canEdit={gameOpen}
         open={listOpen}
         onClose={() => setListOpen(false)}
-        reports={roundReports}
+        reports={gameReports}
         stats={stats}
         onEdit={(r) => {
           setListOpen(false);
@@ -648,7 +649,7 @@ export const PlayerPage: React.FC<{
         open={finishOpen}
         onClose={() => setFinishOpen(false)}
         participant={participant}
-        reports={roundReports}
+        reports={gameReports}
         syncState={syncState}
         syncError={syncError}
       />
@@ -688,7 +689,7 @@ const SyncBadge: React.FC<{ state: SyncState; error: string; onRetry: () => void
 };
 
 const BugListModal: React.FC<{
-  /** Правки разрешены только пока раунд идёт: после закрытия список только для чтения. */
+  /** Правки разрешены только пока игра идёт: после финиша список только для чтения. */
   canEdit: boolean;
   open: boolean;
   onClose: () => void;
@@ -748,7 +749,7 @@ const BugListModal: React.FC<{
                   title={
                     r.status !== 'pending'
                       ? 'Организатор уже проверил эту находку — изменить её нельзя'
-                      : 'Раунд закрыт — изменить находку нельзя'
+                      : 'Игра завершена — изменить находку нельзя'
                   }
                 >
                   <Lock className="h-3.5 w-3.5" />
@@ -870,10 +871,10 @@ const FinishModal: React.FC<{
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Раунд завершён">
+    <Modal open={open} onClose={onClose} title="Результат сдан">
       <div className="space-y-3">
         <p className="text-sm text-slate-600">
-          Заведено дефектов: <b>{reports.length}</b>. Время раунда:{' '}
+          Заведено дефектов: <b>{reports.length}</b>. Вы искали:{' '}
           <b>
             {formatDuration(
               Math.floor(

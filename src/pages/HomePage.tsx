@@ -3,13 +3,13 @@ import { Bug, CheckCircle2, Clock, ListChecks, LogIn, ShieldCheck, Trophy } from
 import { config } from '@/config';
 import { Alert, Badge, Button, Card, CardContent, Spinner, cn } from '@/components/ui';
 import { sha256Hex, storage } from '@/lib/storage';
-import { adminLogin, fetchRound, isOnlineMode } from '@/lib/sync';
+import { adminLogin, fetchGame, isOnlineMode } from '@/lib/sync';
 import {
-  EMPTY_ROUND,
-  ROUND_STATUS_LABELS,
+  EMPTY_GAME,
+  GAME_STATUS_LABELS,
   SEVERITY_LABELS,
   SEVERITY_POINTS,
-  type RoundState,
+  type GameState,
   type SessionState,
   type Severity,
 } from '@/lib/types';
@@ -24,17 +24,17 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [round, setRound] = useState<RoundState>(() =>
-    isOnlineMode() ? EMPTY_ROUND : storage.getRound(),
+  const [game, setGame] = useState<GameState>(() =>
+    isOnlineMode() ? EMPTY_GAME : storage.getGame(),
   );
 
-  // Показываем состояние раунда до входа: участник сразу видит, началось ли уже.
+  // Показываем состояние игры до входа: участник сразу видит, началась ли она.
   useEffect(() => {
     if (!isOnlineMode()) return;
     let alive = true;
     const tick = () =>
-      fetchRound()
-        .then((r) => alive && setRound(r))
+      fetchGame()
+        .then((r) => alive && setGame(r))
         .catch(() => undefined);
     void tick();
     const t = setInterval(tick, 15_000);
@@ -90,8 +90,8 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
     }
   }
 
-  const roundTone =
-    round.status === 'running' ? 'success' : round.status === 'finished' ? 'error' : 'info';
+  const gameTone =
+    game.status === 'running' ? 'success' : game.status === 'finished' ? 'error' : 'info';
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -118,13 +118,14 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
             </p>
           </div>
 
-          <Alert tone={roundTone}>
-            <span className="font-medium">{ROUND_STATUS_LABELS[round.status]}</span>
-            {round.status === 'running' && round.title && ` — ${round.title}`}
-            {round.status === 'idle' &&
+          <Alert tone={gameTone}>
+            <span className="font-medium">{GAME_STATUS_LABELS[game.status]}</span>
+            {game.status === 'running' && game.title && ` — ${game.title}`}
+            {game.status === 'idle' &&
               ' — войти можно уже сейчас, витрина откроется у всех одновременно со стартом.'}
-            {round.status === 'finished' &&
-              ' — приём дефектов закрыт. Дождитесь следующего раунда.'}
+            {game.status === 'finished' &&
+              ' — приём дефектов закрыт. Войдите под своим именем: когда организатор ' +
+                'опубликует итоги, вы увидите свой результат.'}
           </Alert>
 
           <Card>
@@ -137,9 +138,9 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
                 Пароль не нужен — достаточно корпоративного логина или имени. По нему организатор
                 поймёт, чьи находки засчитывать.
               </Rule>
-              <Rule n={2} title="Дождитесь старта раунда">
+              <Rule n={2} title="Дождитесь старта игры">
                 До старта витрина магазина закрыта, так что ранний вход преимущества не даёт:
-                игра начинается у всех одновременно. Как только организатор закроет раунд, приём
+                игра начинается у всех одновременно. Как только организатор её завершит, приём
                 находок прекращается — успевайте до сигнала.
               </Rule>
               <Rule n={3} title="Заводите дефекты одной строкой">
@@ -178,7 +179,7 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
               </div>
               <p className="text-sm text-slate-600">
                 При равенстве баллов выше окажется тот, кто нашёл дефекты быстрее: время каждой
-                находки фиксируется от старта раунда.
+                находки фиксируется от старта игры.
               </p>
             </CardContent>
           </Card>
@@ -276,7 +277,7 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
               <ul className="space-y-1.5 border-t border-slate-100 pt-3 text-sm text-slate-500">
                 <li className="flex items-start gap-2">
                   <Clock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                  Таймер и статус раунда всегда видны в шапке.
+                  Таймер и статус игры всегда видны в шапке.
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
