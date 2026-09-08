@@ -1,14 +1,14 @@
 import { writeFileSync } from 'node:fs';
-import { KNOWN_BUGS } from '../src/lib/knownBugs';
+import { loadReference } from './secret';
 
 /**
  * Собирает Reference.gs для Apps Script из эталонного списка.
  *
- * Список не должен попадать в браузер участника, поэтому клиент его не импортирует,
- * а получает от сервера после проверки пароля организатора. Здесь тот же список
- * превращается в файл, который организатор кладёт в свой приватный проект Apps Script.
+ * Список не должен попадать ни в браузер участника, ни в публичный репозиторий:
+ * клиент получает его от сервера по паролю организатора, а в git он лежит только
+ * шифротекстом. Здесь расшифрованный список превращается в файл для Apps Script.
  *
- * Запуск: npm run build:reference
+ * Запуск: QAGAME_SECRET="..." npm run build:reference
  */
 
 const header = `/**
@@ -20,6 +20,13 @@ const header = `/**
  */
 
 var KNOWN_BUGS = `;
+
+const KNOWN_BUGS = loadReference();
+if (!KNOWN_BUGS) {
+  throw new Error(
+    'Эталонный список недоступен. Расшифруйте его: QAGAME_SECRET="..." npm run reference:unlock',
+  );
+}
 
 const body = JSON.stringify(KNOWN_BUGS, null, 2);
 writeFileSync('google-apps-script/Reference.gs', `${header}${body};\n`, 'utf8');

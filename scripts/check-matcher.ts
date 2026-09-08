@@ -1,11 +1,11 @@
-import { KNOWN_BUGS } from '../src/lib/knownBugs';
+import { loadReference } from './secret';
 import { matchReport } from '../src/lib/matcher';
 import type { BugReport } from '../src/lib/types';
 
 /**
  * Проверка качества авторазбора: `npm run check:matcher`.
  *
- * Ключевые слова в knownBugs.ts легко испортить при правке дефектов, а заметить
+ * Ключевые слова легко испортить при правке дефектов, а заметить
  * это на конкурсе будет поздно. Набор ниже — формулировки «как пишет живой
  * участник», в том числе нарочно кривые и путающие похожие дефекты.
  *
@@ -121,6 +121,17 @@ const CASES: [string, string][] = [
   ['страница долго грузится', ''],
   ['хочу тёмную тему', ''],
 ];
+
+const KNOWN_BUGS = loadReference();
+if (!KNOWN_BUGS) {
+  // Клонировавший репозиторий не обязан иметь пароль от списка: сборка сайта от
+  // этого не зависит, поэтому просто пропускаем проверку, а не роняем её.
+  console.log(
+    'Эталонный список зашифрован и пароль не задан — проверка авторазбора пропущена.\n' +
+      'Организатору: QAGAME_SECRET="..." npm run reference:unlock',
+  );
+  process.exit(0);
+}
 
 let confident = 0;
 let lowButRight = 0;

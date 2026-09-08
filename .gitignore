@@ -3,3 +3,8 @@ dist/
 .DS_Store
 *.local
 .vscode/
+
+# Эталонный список в открытом виде — только на машине организатора.
+# В репозитории он лежит зашифрованным: secret/known-bugs.enc
+secret/known-bugs.json
+google-apps-script/Reference.gs

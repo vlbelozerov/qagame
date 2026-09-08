@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 /**
@@ -15,11 +15,30 @@ import { chromium } from 'playwright';
 
 const BASE = process.env.QAGAME_URL ?? 'http://localhost:4176/';
 
-/** Эталонный список берём из сгенерированного Reference.gs — как это делает сервер. */
-const referenceSource = readFileSync(new URL('../../google-apps-script/Reference.gs', import.meta.url), 'utf8');
-const KNOWN_BUGS = JSON.parse(
-  referenceSource.slice(referenceSource.indexOf('['), referenceSource.lastIndexOf(']') + 1),
-);
+/**
+ * Эталонный список нужен, чтобы подменить им ответ сервера. Он зашифрован, поэтому
+ * берём расшифрованный файл организатора или уже собранный Reference.gs; без них
+ * прогон нечем наполнить — честно пропускаем.
+ */
+function loadReference() {
+  const plain = new URL('../../secret/known-bugs.json', import.meta.url);
+  if (existsSync(plain)) return JSON.parse(readFileSync(plain, 'utf8'));
+  const gs = new URL('../../google-apps-script/Reference.gs', import.meta.url);
+  if (existsSync(gs)) {
+    const src = readFileSync(gs, 'utf8');
+    return JSON.parse(src.slice(src.indexOf('['), src.lastIndexOf(']') + 1));
+  }
+  return null;
+}
+
+const KNOWN_BUGS = loadReference();
+if (!KNOWN_BUGS) {
+  console.log(
+    'Эталонный список зашифрован и не расшифрован — прогон разбора пропущен.\n' +
+      'Организатору: QAGAME_SECRET="..." npm run reference:unlock',
+  );
+  process.exit(0);
+}
 const CHROME = process.env.CHROME_PATH ?? undefined;
 
 const ok = (n, v, d = '') => { console.log(`${v ? '✓' : '✗ ПРОВАЛ'} ${n}${d ? ' — ' + d : ''}`); if (!v) process.exitCode = 1; };
