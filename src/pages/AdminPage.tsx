@@ -491,6 +491,9 @@ export const AdminPage: React.FC<{
 
   const bugByCode = useMemo(() => new Map(knownBugs.map((b) => [b.code, b])), [knownBugs]);
 
+  /** Идентификатор развёртывания Apps Script, с которым работает сайт. */
+  const deploymentId = config.syncEndpoint.match(/\/macros\/s\/([^/]+)/)?.[1] ?? 'не задан';
+
   /**
    * Код дефекта, на который засчитана находка. Проставленный организатором имеет
    * приоритет: покрытие и итоги должны отражать разбор, а не догадку автомата.
@@ -657,6 +660,19 @@ export const AdminPage: React.FC<{
                 Повторить
               </Button>
             </div>
+            {/*
+              Частая причина: в Apps Script создано новое развёртывание — у него
+              другой URL, а сайт стучится в прежнее. Показываем, в какое именно,
+              чтобы это можно было сверить со списком развёртываний.
+            */}
+            {isOnlineMode() && (
+              <p className="mt-2 text-xs" data-testid="endpoint-hint">
+                Сайт обращается к развёртыванию <code className="font-mono">{deploymentId}</code>.
+                Сверьте с «Развернуть → Управление развёртываниями»: обновлять нужно именно его,
+                выбрав «Версия: новая». Если вы создали отдельное развёртывание, у него другой
+                адрес — пропишите его в <code className="font-mono">src/config.ts</code>.
+              </p>
+            )}
           </Alert>
         )}
 
