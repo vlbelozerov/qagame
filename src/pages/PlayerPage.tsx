@@ -23,8 +23,6 @@ import { newId, storage } from '@/lib/storage';
 import { encodeSnapshot, fetchResults, fetchGame, isOnlineMode, pushProgress } from '@/lib/sync';
 import {
   GAME_STATUS_LABELS,
-  STATUS_LABELS,
-  STATUS_STYLES,
   type Area,
   type BugReport,
   type Participant,
@@ -280,11 +278,17 @@ export const PlayerPage: React.FC<{
       if (deleted.length > 0) storage.clearDeletedIds();
       // Сервер возвращает состояние игры — узнаём о старте и финише без лишнего запроса.
       if (result.round) setGame(result.round);
-      // И собственные строки участника со стороны сервера: вердикты организатора
-      // (иначе всё висело бы «на проверке») плюс находки, которых нет локально, —
-      // так список не пустеет в другом браузере и после очистки данных.
+      // И собственные строки участника со стороны сервера: находки, которых нет
+      // локально (список не пустеет в другом браузере и после очистки данных), плюс
+      // вердикты организатора — но только после финиша. Пока игра идёт, вердиктов у
+      // клиента нет вовсе: иначе их было бы видно в хранилище браузера.
       if (result.verdicts?.length) {
-        const fromServer = result.verdicts.filter((v) => v && v.id && v.login === login);
+        const finished = result.round?.status === 'finished';
+        const hide = (v: BugReport): BugReport =>
+          finished ? v : { ...v, status: 'pending', score: 0, reviewComment: '' };
+        const fromServer = result.verdicts
+          .filter((v) => v && v.id && v.login === login)
+          .map(hide);
         const byId = new Map(fromServer.map((v) => [v.id, v]));
         setReports((prev) => {
           const known = new Set(prev.map((r) => r.id));
@@ -316,6 +320,13 @@ export const PlayerPage: React.FC<{
     const t = setInterval(() => void sync(true), config.syncIntervalMs);
     return () => clearInterval(t);
   }, [sync]);
+
+  // На финише забираем вердикты сразу: иначе в итогах до следующего цикла
+  // синхронизации все находки висели бы «на проверке».
+  useEffect(() => {
+    if (game.status !== 'finished') return;
+    void sync(true);
+  }, [game.status, sync]);
 
   // Пытаемся не потерять последние правки при закрытии вкладки.
   useEffect(() => {
@@ -712,7 +723,8 @@ const BugListModal: React.FC<{
         </div>
       ) : (
         <p className="text-sm text-slate-500">
-          Заведено находок: {stats.total}. Баллы начислит организатор по итогам проверки.
+          Заведено находок: {stats.total}. Что засчитано и сколько принесло баллов — будет
+          видно в итогах, когда организатор закончит проверку.
         </p>
       )}
 
@@ -744,33 +756,23 @@ const BugListModal: React.FC<{
                   </Button>
                 </>
               ) : (
-                <span
-                  className="mt-1 text-slate-400"
-                  title={
-                    r.status !== 'pending'
-                      ? 'Организатор уже проверил эту находку — изменить её нельзя'
-                      : 'Игра завершена — изменить находку нельзя'
-                  }
-                >
+                /* Причину не уточняем: она выдала бы, что находку уже разобрали. */
+                <span className="mt-1 text-slate-400" title="Эту находку изменить нельзя">
                   <Lock className="h-3.5 w-3.5" />
                 </span>
               )}
             </div>
+            {/*
+              Статус, баллы и комментарий валидатора участнику по ходу игры не
+              показываем: разбор идёт параллельно, и «принят / отклонён» в реальном
+              времени превращает игру в подсказку, что искать дальше.
+            */}
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <Badge className={STATUS_STYLES[r.status]}>{STATUS_LABELS[r.status]}</Badge>
               <Badge className="gap-1">
                 <Clock className="h-3 w-3" />
                 {formatDuration(r.elapsedSec)}
               </Badge>
-              {r.status === 'accepted' && r.score > 0 && (
-                <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
-                  +{r.score} баллов
-                </Badge>
-              )}
             </div>
-            {r.reviewComment && (
-              <p className="mt-1 text-xs text-slate-500">{r.reviewComment}</p>
-            )}
           </div>
           );
         })}
