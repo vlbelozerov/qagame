@@ -181,10 +181,10 @@ export const SEVERITY_STYLES: Record<Severity, string> = {
 
 /** Баллы по умолчанию, которые админка подставляет при подтверждении дефекта. */
 export const SEVERITY_POINTS: Record<Severity, number> = {
-  blocker: 10,
-  critical: 8,
-  major: 5,
-  minor: 3,
+  blocker: 8,
+  critical: 5,
+  major: 3,
+  minor: 2,
   trivial: 1,
 };
 

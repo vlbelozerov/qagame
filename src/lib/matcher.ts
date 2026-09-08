@@ -78,40 +78,90 @@ interface Scored {
 
 function scoreBug(text: string, bug: KnownBug): Scored {
   const matched: string[] = [];
+  // Одно и то же слово не должно изображать два независимых признака: иначе репорт
+  // из одного слова получал бы полное совпадение. Списки от таких повторов чистит
+  // проверка в scripts/check-matcher.ts, здесь — страховка на случай правки руками.
+  const used = new Set<string>();
   bug.keywords.forEach((group) => {
-    const hit = group.find((word) => hasKeyword(text, word));
-    if (hit) matched.push(hit);
+    const hit = group.find((word) => !used.has(word) && hasKeyword(text, word));
+    if (hit) {
+      matched.push(hit);
+      used.add(hit);
+    }
   });
   return { bug, score: bug.keywords.length ? matched.length / bug.keywords.length : 0, matched };
 }
 
 /**
- * Разбор одного репорта. Уверенным считаем совпадение, где сработали все группы
- * ключевых слов (их минимум две) — то есть текст задел и объект, и суть проблемы.
+ * Слова, которые встречаются ровно у одного дефекта. Таких в списке подавляющее
+ * большинство, и одно такое слово — уже улика: «оформитьь» или «cvv» ни к какому
+ * другому дефекту относиться не может.
  */
-export function matchReport(report: BugReport, knownBugs: KnownBug[]): Omit<MatchResult, 'duplicate'> {
+export function uniqueKeywords(knownBugs: KnownBug[]): Set<string> {
+  const owners = new Map<string, number>();
+  knownBugs.forEach((bug) => {
+    new Set(bug.keywords.flat()).forEach((word) => owners.set(word, (owners.get(word) ?? 0) + 1));
+  });
+  return new Set([...owners.entries()].filter(([, count]) => count === 1).map(([word]) => word));
+}
+
+/** Короткие ключи вроде «12», «%» или «ьь» уликой сами по себе быть не могут. */
+const SOLO_MIN_LENGTH = 4;
+
+/**
+ * Разбор одного репорта.
+ *
+ * Уверенно распознаём, когда сработали минимум две группы ключевых слов — то есть
+ * текст задел и объект, и суть проблемы, — и ближайший конкурент явно слабее.
+ * Одна сработавшая группа даёт не вердикт, а подсказку, и только если слово
+ * принадлежит единственному дефекту: «корзина» есть в половине репортов и кодом
+ * быть не может, а «оформитьь» — может.
+ */
+export function matchReport(
+  report: BugReport,
+  knownBugs: KnownBug[],
+  unique = uniqueKeywords(knownBugs),
+): Omit<MatchResult, 'duplicate'> {
   const text = reportText(report);
   const ranked = knownBugs
     .map((bug) => scoreBug(text, bug))
     .sort((a, b) => b.score - a.score || b.matched.length - a.matched.length);
 
+  const none = { reportId: report.id, code: '', confidence: 'none' as const, score: 0, matched: [] };
   const best = ranked[0];
+  if (!best || best.matched.length === 0) return none;
 
-  // Одной сработавшей группы мало: «корзина» есть в половине репортов и кодом быть
-  // не может. Требуем минимум два независимых признака, иначе — «не распознано».
-  if (!best || best.matched.length < 2) {
-    return { reportId: report.id, code: '', confidence: 'none', score: 0, matched: [] };
+  const runnerUp = ranked[1];
+  // Явно лучше конкурента: либо по доле сработавших групп, либо по их числу.
+  // Прежняя проверка считала ничьёй любое равенство долей, из-за чего уверенные
+  // совпадения уходили в ручной разбор.
+  const clearLeader =
+    !runnerUp || runnerUp.score < best.score || runnerUp.matched.length < best.matched.length;
+
+  if (best.matched.length >= 2) {
+    const confidence: MatchConfidence = clearLeader && best.score >= 0.6 ? 'high' : 'low';
+    return {
+      reportId: report.id,
+      code: best.bug.code,
+      confidence,
+      score: best.score,
+      matched: best.matched,
+    };
   }
 
-  // Если два разных дефекта набрали одинаковый балл, автомат выбирать не должен.
-  const ambiguous = ranked.length > 1 && ranked[1].score === best.score;
-
-  const confidence: MatchConfidence = best.score === 1 && !ambiguous ? 'high' : 'low';
+  const word = best.matched[0];
+  const solid =
+    unique.has(word) &&
+    word.length >= SOLO_MIN_LENGTH &&
+    (!runnerUp || runnerUp.matched.length === 0);
+  if (!solid) return none;
 
   return {
     reportId: report.id,
     code: best.bug.code,
-    confidence,
+    // Одного признака мало для автоматического вердикта: показываем как «нужен взгляд»,
+    // но с подставленным кодом — организатору остаётся подтвердить или поменять.
+    confidence: 'low',
     score: best.score,
     matched: best.matched,
   };
@@ -125,9 +175,11 @@ export function matchAll(reports: BugReport[], knownBugs: KnownBug[]): Map<strin
   const byTime = [...reports].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const seen = new Set<string>();
   const result = new Map<string, MatchResult>();
+  // Считаем один раз на всю выгрузку, а не на каждый репорт.
+  const unique = uniqueKeywords(knownBugs);
 
   byTime.forEach((report) => {
-    const base = matchReport(report, knownBugs);
+    const base = matchReport(report, knownBugs, unique);
     const key = `${report.login}::${base.code}`;
     const duplicate = base.code !== '' && seen.has(key);
     if (base.code) seen.add(key);
