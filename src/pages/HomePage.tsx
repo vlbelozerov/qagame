@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Bug, CheckCircle2, Clock, ListChecks, LogIn, ShieldCheck, Trophy } from 'lucide-react';
 import { config } from '@/config';
 import { Alert, Badge, Button, Card, CardContent, Spinner, cn } from '@/components/ui';
@@ -90,6 +90,10 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
     }
   }
 
+  // Запрет на хранилище встречается в приватных окнах и под корпоративными
+  // политиками: участнику лучше узнать об этом до игры, а не после обновления страницы.
+  const storageAvailable = useMemo(() => storage.isAvailable(), []);
+
   const gameTone =
     game.status === 'running' ? 'success' : game.status === 'finished' ? 'error' : 'info';
 
@@ -117,6 +121,15 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
               находку можно было проверить.
             </p>
           </div>
+
+          {!storageAvailable && (
+            <Alert tone="error">
+              <span className="font-medium">Браузер запрещает сайту сохранять данные.</span>{' '}
+              Вход не переживёт обновление страницы: после F5 имя придётся ввести заново.
+              Сами находки при этом не теряются — они уходят организатору сразу. Если это
+              приватное окно, откройте игру в обычном.
+            </Alert>
+          )}
 
           <Alert tone={gameTone}>
             <span className="font-medium">{GAME_STATUS_LABELS[game.status]}</span>

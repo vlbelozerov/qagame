@@ -10,6 +10,12 @@ import {
 
 const KEY = {
   session: 'qagame.session',
+  /**
+   * Сессия организатора живёт в sessionStorage: она содержит пароль, и на диске
+   * ему не место. sessionStorage привязан к вкладке — обновление страницы вход не
+   * теряет, а закрытая вкладка забывает пароль.
+   */
+  adminSession: 'qagame.admin-session',
   participant: 'qagame.participant',
   reports: 'qagame.reports',
   /** id репортов, подтверждённых сервером — чтобы не слать их повторно. */
@@ -41,10 +47,33 @@ function write(key: string, value: unknown): void {
   }
 }
 
+/** sessionStorage может быть недоступен (приватный режим, политика браузера). */
+function readSession<T>(key: string, fallback: T): T {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export const storage = {
-  getSession: () => read<SessionState | null>(KEY.session, null),
-  setSession: (s: SessionState | null) =>
-    s ? write(KEY.session, s) : localStorage.removeItem(KEY.session),
+  getSession: (): SessionState | null =>
+    read<SessionState | null>(KEY.session, null) ??
+    readSession<SessionState | null>(KEY.adminSession, null),
+
+  setSession: (s: SessionState | null) => {
+    try {
+      localStorage.removeItem(KEY.session);
+      sessionStorage.removeItem(KEY.adminSession);
+      if (!s) return;
+      // Пароль организатора остаётся в пределах вкладки, находки участника — на диске.
+      if (s.role === 'admin') sessionStorage.setItem(KEY.adminSession, JSON.stringify(s));
+      else write(KEY.session, s);
+    } catch {
+      // Браузер запретил хранилище — работаем в памяти, о чём предупреждаем на входе.
+    }
+  },
 
   getParticipant: () => read<Participant | null>(KEY.participant, null),
   setParticipant: (p: Participant) => write(KEY.participant, p),
@@ -75,6 +104,22 @@ export const storage = {
     read<Omit<AdminSnapshot, 'round'>>(KEY.admin, { participants: [], reports: [] }),
   setAdminData: (data: Omit<AdminSnapshot, 'round'>) => write(KEY.admin, data),
 
+  /**
+   * Доступно ли хранилище браузера. Если нет — вход не переживёт обновление
+   * страницы, и участника лучше предупредить заранее, а не после потери прогресса.
+   */
+  isAvailable: (): boolean => {
+    try {
+      const probe = 'qagame.probe';
+      localStorage.setItem(probe, '1');
+      const ok = localStorage.getItem(probe) === '1';
+      localStorage.removeItem(probe);
+      return ok;
+    } catch {
+      return false;
+    }
+  },
+
   /** Полный сброс данных участника — используется при смене участника в одном браузере. */
   clearPlayerData: () => {
     [KEY.session, KEY.participant, KEY.reports, KEY.synced, KEY.deleted].forEach((k) =>
@@ -85,6 +130,11 @@ export const storage = {
   /** Полный сброс конкурса в офлайн-режиме. */
   clearAll: () => {
     Object.values(KEY).forEach((k) => localStorage.removeItem(k));
+    try {
+      sessionStorage.removeItem(KEY.adminSession);
+    } catch {
+      // Хранилище недоступно — забывать нечего.
+    }
   },
 };
 

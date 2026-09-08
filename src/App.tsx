@@ -8,11 +8,10 @@ import type { SessionState } from '@/lib/types';
 
 export const App: React.FC = () => {
   const [session, setSession] = useState<SessionState | null>(() => {
+    // Участник хранится в localStorage, организатор — в sessionStorage вместе с
+    // паролем: обновление страницы вход не теряет, закрытая вкладка — теряет.
     const saved = storage.getSession();
-    if (saved?.role === 'player') return saved;
-    // В боевом режиме пароль админа намеренно не переживает перезагрузку — вход каждый раз
-    // заново. В демо-режиме пароля нет, поэтому обновление страницы не выкидывает из админки.
-    if (saved?.role === 'admin') return config.requireLogin ? null : saved;
+    if (saved) return saved;
     // Демо-режим: сразу пускаем в игру под гостевым логином.
     return config.requireLogin ? null : { role: 'player', login: guestLogin() };
   });
@@ -24,9 +23,8 @@ export const App: React.FC = () => {
       const previous = storage.getParticipant();
       if (previous && previous.login !== next.login) storage.clearPlayerData();
     }
-    // Пароль админа на диск не попадает: в боевом режиме сессия админа не сохраняется вовсе,
-    // в демо-режиме сохранять нечего — adminSecret там пустой.
-    storage.setSession(next.role === 'admin' && config.requireLogin ? null : next);
+    // Пароль организатора на диск не попадает: setSession кладёт его в sessionStorage.
+    storage.setSession(next);
     setSession(next);
   }
 
