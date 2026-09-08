@@ -149,16 +149,30 @@ export const AdminPage: React.FC<{
     void load();
   }, [load]);
 
-  // Список нужен для выбора дефекта в разборе, поэтому запрашиваем его сразу, не
-  // дожидаясь нажатия «Авторазбор». Ошибку здесь не показываем: она всплывёт там,
-  // где список действительно понадобился.
+  /**
+   * Список запрашиваем сразу после входа, не дожидаясь «Авторазбора»: если в проекте
+   * Apps Script нет Reference.gs или развёртывание старое, организатор должен узнать
+   * об этом при входе, а не в разгар разбора.
+   */
   useEffect(() => {
     if (!isOnlineMode()) return;
     fetchReference(adminName, adminSecret)
-      // Форму ответа проверяем: без Reference.gs сервер может вернуть что угодно,
-      // и админка не должна из-за этого падать в белый экран.
-      .then((list) => Array.isArray(list) && setKnownBugs(list))
-      .catch(() => undefined);
+      .then((list) => {
+        // Форму ответа проверяем: без Reference.gs сервер может вернуть что угодно,
+        // и админка не должна из-за этого падать в белый экран.
+        if (Array.isArray(list)) {
+          setKnownBugs(list);
+          setKnownBugsError('');
+          return;
+        }
+        setKnownBugsError(
+          'Сервер вернул не эталонный список: проверьте, что в проект Apps Script добавлен ' +
+            'файл Reference.gs, и создайте новое развёртывание.',
+        );
+      })
+      .catch((err: unknown) =>
+        setKnownBugsError(err instanceof Error ? err.message : 'Эталонный список недоступен'),
+      );
   }, [adminName, adminSecret]);
 
   // В офлайн-режиме сводка живёт в localStorage, иначе вердикты терялись бы при перезагрузке.
@@ -608,6 +622,14 @@ export const AdminPage: React.FC<{
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         {error && <Alert tone="error">{error}</Alert>}
+
+        {knownBugsError && (
+          <Alert tone="error">
+            <span className="font-medium">Эталонный список не загружен.</span> {knownBugsError}{' '}
+            Разбор работать будет, но без авторазбора и выбора дефекта: статусы и баллы
+            придётся проставлять вручную.
+          </Alert>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-4">
           <Stat label="Участников" value={leaderboard.length} />
