@@ -46,6 +46,12 @@ var STATE_COLUMNS = ['number', 'status', 'title', 'startedAt', 'endsAt', 'finish
 var RESULTS_COLUMNS = ['round', 'publishedAt', 'part', 'payload'];
 var RESULTS_CHUNK = 40000;
 
+/**
+ * Версия скрипта. Видна по URL развёртывания в браузере — так организатор
+ * проверяет, какой код развёрнут на самом деле, не заходя в редактор.
+ */
+var VERSION = '2026-09-08';
+
 /** Запас на расхождение часов клиента и сервера, мс. */
 var CLOCK_GRACE_MS = 60000;
 
@@ -92,7 +98,30 @@ function referenceList() {
 }
 
 function doGet() {
-  return json({ ok: true, result: { service: 'qagame', status: 'ready' } });
+  return json({
+    ok: true,
+    result: {
+      service: 'qagame',
+      status: 'ready',
+      version: VERSION,
+      // Список действий и наличие эталонного списка — чтобы одним взглядом понять,
+      // всё ли на месте после обновления скрипта.
+      reference: typeof KNOWN_BUGS === 'undefined' ? 'нет файла Reference.gs' : KNOWN_BUGS.length,
+      actions: [
+        'submit',
+        'round',
+        'results',
+        'adminLogin',
+        'adminSnapshot',
+        'adminVerdict',
+        'adminStartRound',
+        'adminFinishRound',
+        'adminReset',
+        'adminPublishResults',
+        'adminReference',
+      ],
+    },
+  });
 }
 
 function json(payload) {

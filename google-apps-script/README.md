@@ -70,8 +70,26 @@ syncEndpoint: 'https://script.google.com/macros/s/AKfy.../exec',
 
 ## Проверка
 
-Откройте URL развёртывания в браузере. Ответ `{"ok":true,"result":{"service":"qagame","status":"ready"}}`
-означает, что бэкенд работает.
+Откройте URL развёртывания в браузере — ответ показывает, что именно развёрнуто:
+
+```json
+{"ok":true,"result":{
+  "service":"qagame","status":"ready","version":"2026-09-08",
+  "reference":39,
+  "actions":["submit","round","results","adminLogin","adminSnapshot","adminVerdict",
+             "adminStartRound","adminFinishRound","adminReset","adminPublishResults","adminReference"]}}
+```
+
+На что смотреть:
+
+| Поле | Что означает |
+| --- | --- |
+| `version` | дата версии скрипта; отличается от текущей — развёрнут старый код |
+| `reference` | сколько дефектов в эталонном списке; `нет файла Reference.gs` — список не добавлен |
+| `actions` | доступные действия; нет `adminReference` — развёртывание старое |
+
+Ответа нет вовсе или он не JSON — проверьте, что развёртывание опубликовано с
+доступом «у всех».
 
 ## Что даёт бэкенд помимо хранения
 
