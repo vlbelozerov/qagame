@@ -106,7 +106,7 @@ export const HomePage: React.FC<{ onLogin: (s: SessionState) => void }> = ({ onL
           </span>
           <div>
             <p className="font-semibold">{config.title}</p>
-            <p className="text-xs text-slate-500">Корпоративный конкурс тестировщиков</p>
+            <p className="text-xs text-slate-500">Игра для всех, кто умеет замечать детали</p>
           </div>
         </div>
       </header>
