@@ -246,7 +246,9 @@ export const AdminPage: React.FC<{
 
   /** Итоги игры: номинации считаются по принятым дефектам текущего разбора. */
   async function openReport() {
-    const bugs = await loadKnownBugs();
+    // Без эталонного списка отчёт всё равно нужен: места, баллы и номинации по
+    // участникам считаются и без него — не хватит только покрытия и названий дефектов.
+    const bugs = await tryLoadKnownBugs();
     let current = matches;
     // Без разбора не с чем сопоставлять находки — запускаем его молча.
     if (current.size === 0) {
@@ -310,6 +312,19 @@ export const AdminPage: React.FC<{
     return list;
   }
 
+  /**
+   * Список, если он доступен. Ошибку не бросаем, а показываем плашкой в шапке:
+   * из-за недоступного списка не должны ломаться экраны, которые без него работают.
+   */
+  async function tryLoadKnownBugs(): Promise<KnownBug[]> {
+    try {
+      return await loadKnownBugs();
+    } catch (err) {
+      setKnownBugsError(err instanceof Error ? err.message : 'Эталонный список недоступен');
+      return [];
+    }
+  }
+
   async function openReference() {
     // Окно открываем сразу: если чанк со списком не загрузится, пользователь должен
     // увидеть причину, а не молча ничего не получить по нажатию.
@@ -328,13 +343,14 @@ export const AdminPage: React.FC<{
   async function runAnalysis() {
     setAnalyzing(true);
     setAutoNote('');
-    setError('');
     try {
       const bugs = await loadKnownBugs();
       setMatches(matchAll(reports, bugs));
+      setKnownBugsError('');
     } catch (err) {
-      // Списка может не быть: офлайн-режим или в Apps Script не добавлен Reference.gs.
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить эталонный список');
+      // Списка может не быть: офлайн-режим, старое развёртывание или в проекте
+      // Apps Script не добавлен Reference.gs.
+      setKnownBugsError(err instanceof Error ? err.message : 'Эталонный список недоступен');
     } finally {
       setAnalyzing(false);
     }
@@ -625,9 +641,22 @@ export const AdminPage: React.FC<{
 
         {knownBugsError && (
           <Alert tone="error">
-            <span className="font-medium">Эталонный список не загружен.</span> {knownBugsError}{' '}
-            Разбор работать будет, но без авторазбора и выбора дефекта: статусы и баллы
-            придётся проставлять вручную.
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+              <span>
+                <span className="font-medium">Эталонный список не загружен.</span>{' '}
+                {knownBugsError} Разбор работать будет, но без авторазбора и выбора дефекта:
+                статусы и баллы придётся проставлять вручную.
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void tryLoadKnownBugs()}
+                data-testid="retry-reference"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Повторить
+              </Button>
+            </div>
           </Alert>
         )}
 

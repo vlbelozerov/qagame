@@ -372,7 +372,9 @@ export function reportToText(report: GameReport): string {
   const lines = [
     'Итоги игры',
     `Участников: ${report.participants} · подтверждённых находок: ${report.accepted} из ${report.totalReports} заявок`,
-    `Найдено дефектов: ${report.foundBugs} из ${report.knownBugs}`,
+    report.knownBugs > 0
+      ? `Найдено дефектов: ${report.foundBugs} из ${report.knownBugs}`
+      : `Найдено дефектов: ${report.foundBugs}`,
     '',
     ...report.nominations.map((n) => `${n.emoji} ${n.title}: ${n.winner} — ${n.detail}`),
   ];

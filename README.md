@@ -299,16 +299,18 @@ printf 'новый-пароль' | sha256sum
 
 ### Проверка перед конкурсом
 
-Три прогона в [`scripts/e2e`](./scripts/e2e) страхуют самое хрупкое: что заложенные
-дефекты живы, что разбор считает покрытие правильно и что участник не видит лишнего.
-Playwright в зависимости не входит — поставьте его разово:
+Прогоны в [`scripts/e2e`](./scripts/e2e) страхуют самое хрупкое: что заложенные
+дефекты живы, что разбор считает покрытие правильно, что участник не видит лишнего
+и что админка переживает устаревший бэкенд. Playwright в зависимости не входит —
+поставьте его разово:
 
 ```bash
 npm i -D playwright
 npm run build && npx vite preview --port 4176 &
-node scripts/e2e/check-defects.mjs   # 13 намеренных дефектов на месте
-node scripts/e2e/check-review.mjs    # ручной выбор кода доходит до итогов
-node scripts/e2e/check-player.mjs    # вердикты скрыты до публикации итогов
+node scripts/e2e/check-defects.mjs         # 13 намеренных дефектов на месте
+node scripts/e2e/check-review.mjs          # ручной выбор кода доходит до итогов
+node scripts/e2e/check-player.mjs          # вердикты скрыты до публикации итогов
+node scripts/e2e/check-admin-degraded.mjs  # старый Code.gs не ломает админку
 ```
 
 ## Итоги игры

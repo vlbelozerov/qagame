@@ -230,8 +230,17 @@ export const GameResults: React.FC<{
       {/* --- Что нашли все вместе --- */}
       <div className="rounded-xl border border-slate-200 p-3">
         <p className="text-sm text-slate-600">
-          Все вместе нашли <b>{results.foundBugs}</b> из <b>{results.knownBugs}</b> заложенных
-          дефектов · участников: {results.participants} · заявок: {results.totalReports}.
+          {/* Эталонного списка у организатора могло не быть — тогда «из N» не пишем. */}
+          Все вместе нашли <b>{results.foundBugs}</b>
+          {results.knownBugs > 0 ? (
+            <>
+              {' '}
+              из <b>{results.knownBugs}</b> заложенных дефектов
+            </>
+          ) : (
+            ' дефектов'
+          )}{' '}
+          · участников: {results.participants} · заявок: {results.totalReports}.
         </p>
         {results.missed.length > 0 && (
           <details className="mt-2">
