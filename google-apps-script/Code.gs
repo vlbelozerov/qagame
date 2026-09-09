@@ -50,7 +50,7 @@ var RESULTS_CHUNK = 40000;
  * Версия скрипта. Видна по URL развёртывания в браузере — так организатор
  * проверяет, какой код развёрнут на самом деле, не заходя в редактор.
  */
-var VERSION = '2026-09-09';
+var VERSION = '2026-09-09-2';
 
 /** Запас на расхождение часов клиента и сервера, мс. */
 var CLOCK_GRACE_MS = 60000;
@@ -62,10 +62,10 @@ var CLOCK_GRACE_MS = 60000;
  * держать её на время чтений — значит выстроить в очередь все запросы разом, и
  * тогда запуск игры ждёт, пока разгребётся поток находок, и падает по таймауту.
  */
-function withLock(action) {
+function withLock(action, waitMs) {
   var lock = LockService.getScriptLock();
   try {
-    lock.waitLock(30000);
+    lock.waitLock(waitMs || 30000);
   } catch (err) {
     throw new Error(
       'Сервер занят записью данных участников и не освободился за 30 секунд. ' +
@@ -278,29 +278,35 @@ function writeState(state) {
   return state;
 }
 
+/**
+ * Старт и финиш игры идут БЕЗ общей блокировки — и это осознанно.
+ *
+ * Блокировка защищает листы `reports` и `participants`, куда параллельно пишут
+ * десятки участников. Лист `state` — одна строка, и меняет её только организатор,
+ * который в конкурсе один. Ставить старт в общую очередь незачем: он оказывался
+ * за потоком обменов участников и падал с «таймаутом блокировки» — то есть
+ * единственное действие, которое обязано срабатывать сразу, ломалось именно
+ * тогда, когда участников много.
+ */
 function startRound(request) {
-  return withLock(function () {
-    var previous = readState();
-    var now = new Date();
-    var minutes = Number(request.durationMinutes) || 0;
-    return writeState({
-      number: previous.number + 1,
-      status: 'running',
-      title: String(request.title || ''),
-      startedAt: now.toISOString(),
-      endsAt: minutes > 0 ? new Date(now.getTime() + minutes * 60000).toISOString() : '',
-      finishedAt: '',
-    });
+  var previous = readState();
+  var now = new Date();
+  var minutes = Number(request.durationMinutes) || 0;
+  return writeState({
+    number: previous.number + 1,
+    status: 'running',
+    title: String(request.title || ''),
+    startedAt: now.toISOString(),
+    endsAt: minutes > 0 ? new Date(now.getTime() + minutes * 60000).toISOString() : '',
+    finishedAt: '',
   });
 }
 
 function finishRound() {
-  return withLock(function () {
-    var state = readState();
-    state.status = 'finished';
-    state.finishedAt = new Date().toISOString();
-    return writeState(state);
-  });
+  var state = readState();
+  state.status = 'finished';
+  state.finishedAt = new Date().toISOString();
+  return writeState(state);
 }
 
 /** Новый конкурс: данные прошлого стираются, счётчик запусков обнуляется. */
@@ -330,6 +336,10 @@ function resetCompetition() {
 /**
  * Сохранение итогов игры. Публикация повторяется столько раз, сколько нужно
  * организатору, — старые куски того же запуска стираются перед записью новых.
+ *
+ * Блокировки нет по той же причине, что у старта: лист `results` пишет только
+ * организатор, участники его читают. Публикация — второй момент, когда на
+ * сервер разом смотрят все, и падать по чужой очереди ей нельзя.
  */
 function writeResults(request) {
   var round = Number(request.round) || 0;
@@ -337,18 +347,16 @@ function writeResults(request) {
   var payload = String(request.payload || '');
   if (!payload) throw new Error('Пустые итоги игры');
 
-  return withLock(function () {
-    var sheet = getSheet(SHEET_RESULTS, RESULTS_COLUMNS);
-    dropResultRows(sheet, round);
+  var sheet = getSheet(SHEET_RESULTS, RESULTS_COLUMNS);
+  dropResultRows(sheet, round);
 
-    var publishedAt = new Date().toISOString();
-    var rows = [];
-    for (var offset = 0, part = 0; offset < payload.length; offset += RESULTS_CHUNK, part++) {
-      rows.push([round, publishedAt, part, payload.substr(offset, RESULTS_CHUNK)]);
-    }
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, RESULTS_COLUMNS.length).setValues(rows);
-    return { ok: true, publishedAt: publishedAt, parts: rows.length };
-  });
+  var publishedAt = new Date().toISOString();
+  var rows = [];
+  for (var offset = 0, part = 0; offset < payload.length; offset += RESULTS_CHUNK, part++) {
+    rows.push([round, publishedAt, part, payload.substr(offset, RESULTS_CHUNK)]);
+  }
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, RESULTS_COLUMNS.length).setValues(rows);
+  return { ok: true, publishedAt: publishedAt, parts: rows.length };
 }
 
 function dropResultRows(sheet, round) {
@@ -432,12 +440,14 @@ function handleSubmit(request) {
   });
 
   var deleted = request.deletedIds || [];
+  // Ждём очереди недолго: клиент повторит на следующем тике, а висящее
+  // выполнение занимает один из 30 одновременных слотов Apps Script.
   var accepted = withLock(function () {
     upsertParticipant(request.participant);
     var ids = upsertReports(allowed);
     removeReports(deleted);
     return ids;
-  });
+  }, 10000);
 
   return {
     accepted: accepted,
