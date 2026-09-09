@@ -79,8 +79,27 @@ export const PlayerPage: React.FC<{
   // Держим свежие данные в ref, чтобы интервал синхронизации не пересоздавался на каждый ввод.
   const latest = useRef({ participant, reports: [] as BugReport[] });
 
-  useEffect(() => storage.setParticipant(participant), [participant]);
-  useEffect(() => storage.setReports(reports), [reports]);
+  /**
+   * Есть ли что отправить. Пока флаг снят, обмен вырождается в отметку «я здесь»,
+   * и слать её чаще раза в минуту незачем: каждый такой запрос берёт общую
+   * блокировку скрипта и задерживает запуск игры у организатора.
+   */
+  const dirty = useRef(true);
+  const lastSentAt = useRef(0);
+  /**
+   * Нужны ли с сервера собственные строки участника. Спрашиваем при входе (список
+   * мог не сохраниться в этом браузере) и после финиша — за вердиктами.
+   */
+  const wantVerdicts = useRef(true);
+
+  useEffect(() => {
+    storage.setParticipant(participant);
+    dirty.current = true;
+  }, [participant]);
+  useEffect(() => {
+    storage.setReports(reports);
+    dirty.current = true;
+  }, [reports]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -267,13 +286,19 @@ export const PlayerPage: React.FC<{
   const sync = useCallback(async (silent: boolean) => {
     if (!isOnlineMode()) return;
     if (!silent) setSyncState('syncing');
+    // Флаг снимаем до запроса: находка, заведённая во время обмена, должна уйти
+    // следующим, а не потеряться под успешный ответ на предыдущий.
+    dirty.current = false;
+    lastSentAt.current = Date.now();
+    const asked = wantVerdicts.current;
     try {
       const snapshot = {
         ...latest.current.participant,
         lastSeenAt: new Date().toISOString(),
       };
       const deleted = storage.getDeletedIds();
-      const result = await pushProgress(snapshot, latest.current.reports, deleted);
+      const result = await pushProgress(snapshot, latest.current.reports, deleted, asked);
+      if (asked) wantVerdicts.current = false;
       storage.addSyncedIds(result.accepted);
       if (deleted.length > 0) storage.clearDeletedIds();
       // Сервер возвращает состояние игры — узнаём о старте и финише без лишнего запроса.
@@ -292,14 +317,18 @@ export const PlayerPage: React.FC<{
         const byId = new Map(fromServer.map((v) => [v.id, v]));
         setReports((prev) => {
           const known = new Set(prev.map((r) => r.id));
+          let changed = false;
           const patched = prev.map((r) => {
             const v = byId.get(r.id);
-            return v && (v.status !== r.status || v.score !== r.score)
-              ? { ...r, status: v.status, score: v.score, reviewComment: v.reviewComment }
-              : r;
+            if (!v || (v.status === r.status && v.score === r.score)) return r;
+            changed = true;
+            return { ...r, status: v.status, score: v.score, reviewComment: v.reviewComment };
           });
           const missing = fromServer.filter((v) => !known.has(v.id));
-          return missing.length > 0 ? [...missing, ...patched] : patched;
+          if (missing.length > 0) return [...missing, ...patched];
+          // Тот же массив, если сервер ничего не изменил: иначе обмен считался бы
+          // новой правкой и клиент отправлял бы её по кругу.
+          return changed ? patched : prev;
         });
       }
       setSyncState('ok');
@@ -309,6 +338,9 @@ export const PlayerPage: React.FC<{
           : '',
       );
     } catch (err) {
+      // Неудачный обмен — данные всё ещё не на сервере: повторяем на следующем тике.
+      dirty.current = true;
+      if (asked) wantVerdicts.current = true;
       setSyncState('error');
       setSyncError(err instanceof Error ? err.message : 'Ошибка отправки');
     }
@@ -317,7 +349,12 @@ export const PlayerPage: React.FC<{
   useEffect(() => {
     if (!isOnlineMode()) return;
     void sync(true);
-    const t = setInterval(() => void sync(true), config.syncIntervalMs);
+    // Находки уходят сразу, а пустая отметка «я здесь» — не чаще heartbeatMs:
+    // она нужна только организатору для списка участников, а стоит блокировки.
+    const t = setInterval(() => {
+      const due = Date.now() - lastSentAt.current >= config.heartbeatMs;
+      if (dirty.current || due) void sync(true);
+    }, config.syncIntervalMs);
     return () => clearInterval(t);
   }, [sync]);
 
@@ -325,6 +362,7 @@ export const PlayerPage: React.FC<{
   // синхронизации все находки висели бы «на проверке».
   useEffect(() => {
     if (game.status !== 'finished') return;
+    wantVerdicts.current = true;
     void sync(true);
   }, [game.status, sync]);
 
@@ -336,6 +374,8 @@ export const PlayerPage: React.FC<{
         action: 'submit',
         participant: { ...latest.current.participant, lastSeenAt: new Date().toISOString() },
         reports: latest.current.reports,
+        // Ответ читать всё равно некому: вкладка закрывается.
+        wantVerdicts: false,
       });
       navigator.sendBeacon(config.syncEndpoint, new Blob([body], { type: 'text/plain' }));
     };

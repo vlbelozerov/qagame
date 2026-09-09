@@ -50,10 +50,34 @@ var RESULTS_CHUNK = 40000;
  * Версия скрипта. Видна по URL развёртывания в браузере — так организатор
  * проверяет, какой код развёрнут на самом деле, не заходя в редактор.
  */
-var VERSION = '2026-09-08';
+var VERSION = '2026-09-09';
 
 /** Запас на расхождение часов клиента и сервера, мс. */
 var CLOCK_GRACE_MS = 60000;
+
+/**
+ * Запись под общей блокировкой скрипта.
+ *
+ * Блокировка одна на весь проект, поэтому под ней должна идти только запись:
+ * держать её на время чтений — значит выстроить в очередь все запросы разом, и
+ * тогда запуск игры ждёт, пока разгребётся поток находок, и падает по таймауту.
+ */
+function withLock(action) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (err) {
+    throw new Error(
+      'Сервер занят записью данных участников и не освободился за 30 секунд. ' +
+        'Повторите действие через несколько секунд.',
+    );
+  }
+  try {
+    return action();
+  } finally {
+    lock.releaseLock();
+  }
+}
 
 function doPost(e) {
   try {
@@ -255,9 +279,7 @@ function writeState(state) {
 }
 
 function startRound(request) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withLock(function () {
     var previous = readState();
     var now = new Date();
     var minutes = Number(request.durationMinutes) || 0;
@@ -269,29 +291,21 @@ function startRound(request) {
       endsAt: minutes > 0 ? new Date(now.getTime() + minutes * 60000).toISOString() : '',
       finishedAt: '',
     });
-  } finally {
-    lock.releaseLock();
-  }
+  });
 }
 
 function finishRound() {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withLock(function () {
     var state = readState();
     state.status = 'finished';
     state.finishedAt = new Date().toISOString();
     return writeState(state);
-  } finally {
-    lock.releaseLock();
-  }
+  });
 }
 
 /** Новый конкурс: данные прошлого стираются, счётчик запусков обнуляется. */
 function resetCompetition() {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withLock(function () {
     [
       [SHEET_REPORTS, REPORT_COLUMNS],
       [SHEET_PARTICIPANTS, PARTICIPANT_COLUMNS],
@@ -310,9 +324,7 @@ function resetCompetition() {
       endsAt: '',
       finishedAt: '',
     });
-  } finally {
-    lock.releaseLock();
-  }
+  });
 }
 
 /**
@@ -325,9 +337,7 @@ function writeResults(request) {
   var payload = String(request.payload || '');
   if (!payload) throw new Error('Пустые итоги игры');
 
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withLock(function () {
     var sheet = getSheet(SHEET_RESULTS, RESULTS_COLUMNS);
     dropResultRows(sheet, round);
 
@@ -338,9 +348,7 @@ function writeResults(request) {
     }
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, RESULTS_COLUMNS.length).setValues(rows);
     return { ok: true, publishedAt: publishedAt, parts: rows.length };
-  } finally {
-    lock.releaseLock();
-  }
+  });
 }
 
 function dropResultRows(sheet, round) {
@@ -411,33 +419,42 @@ function reportAllowed(report, state) {
  * пишут в один документ параллельно, а Apps Script выполняет запросы конкурентно.
  */
 function handleSubmit(request) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
-    var state = readState();
+  // Чтение состояния и отбор находок блокировки не требуют: они ничего не меняют,
+  // а держать под ней лишние обращения к таблице — значит задержать запуск игры.
+  var state = readState();
+
+  var incoming = request.reports || [];
+  var allowed = [];
+  var rejected = [];
+  incoming.forEach(function (report) {
+    if (reportAllowed(report, state)) allowed.push(report);
+    else rejected.push(report.id);
+  });
+
+  var deleted = request.deletedIds || [];
+  var accepted = withLock(function () {
     upsertParticipant(request.participant);
+    var ids = upsertReports(allowed);
+    removeReports(deleted);
+    return ids;
+  });
 
-    var incoming = request.reports || [];
-    var allowed = [];
-    var rejected = [];
-    incoming.forEach(function (report) {
-      if (reportAllowed(report, state)) allowed.push(report);
-      else rejected.push(report.id);
-    });
+  return {
+    accepted: accepted,
+    rejected: rejected,
+    round: state,
+    // Свои строки участник запрашивает явно: при входе и после финиша. Отдавать их
+    // на каждом обмене — лишний полный проход по листу в каждом запросе.
+    verdicts: wantsVerdicts(request) ? verdictsFor(request.participant && request.participant.login) : [],
+  };
+}
 
-    var accepted = upsertReports(allowed);
-    removeReports(request.deletedIds || []);
-
-    return {
-      accepted: accepted,
-      rejected: rejected,
-      round: state,
-      // Возвращаем вердикты, иначе у участника всё навсегда остаётся «на проверке».
-      verdicts: verdictsFor(request.participant && request.participant.login),
-    };
-  } finally {
-    lock.releaseLock();
-  }
+/**
+ * Нужны ли клиенту его строки с сервера. Старый клиент поле не присылает —
+ * ему по-прежнему отдаём всё, иначе находки навсегда остались бы «на проверке».
+ */
+function wantsVerdicts(request) {
+  return request.wantVerdicts === undefined ? true : request.wantVerdicts === true;
 }
 
 /**
@@ -519,6 +536,8 @@ function upsertParticipant(participant) {
 }
 
 function upsertReports(reports) {
+  // Пустой обмен (участник просто отмечается «я здесь») листа не читает вовсе.
+  if (!reports || reports.length === 0) return [];
   var sheet = getSheet(SHEET_REPORTS, REPORT_COLUMNS);
   var values = sheet.getDataRange().getValues();
   var rowById = {};
@@ -604,9 +623,7 @@ function handleSnapshot() {
 }
 
 function handleVerdict(request) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withLock(function () {
     var sheet = getSheet(SHEET_REPORTS, REPORT_COLUMNS);
     var values = sheet.getDataRange().getValues();
     for (var r = 1; r < values.length; r++) {
@@ -620,7 +637,5 @@ function handleVerdict(request) {
       }
     }
     throw new Error('Дефект не найден: ' + request.id);
-  } finally {
-    lock.releaseLock();
-  }
+  });
 }

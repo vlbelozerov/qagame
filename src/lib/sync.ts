@@ -63,8 +63,9 @@ export function pushProgress(
   participant: Participant,
   reports: BugReport[],
   deletedIds: string[] = [],
+  wantVerdicts = true,
 ) {
-  return call<SubmitResult>('submit', { participant, reports, deletedIds });
+  return call<SubmitResult>('submit', { participant, reports, deletedIds, wantVerdicts });
 }
 
 /** Состояние игры без авторизации — его читают и участники. */
